@@ -109,6 +109,10 @@ CAUR_LIVE=1 go test ./internal/review/ -run Hostile -v   # review live (rete + c
 ## Stato e idee future
 
 MVP funzionante (wrapper su yay, backend `claude-cli`). Idee successive:
-diff-only review sugli upgrade, pre-scan euristico per ridurre i token, audit log
-persistente, allowlist per maintainer, verifica dei checksum vs `.SRCINFO`,
-backend aggiuntivi (API Anthropic/OpenAI/Ollama) dietro l'interfaccia `Reviewer`.
+pre-scan euristico per ridurre i token, audit log persistente, allowlist per
+maintainer, verifica dei checksum vs `.SRCINFO`, backend aggiuntivi (API
+Anthropic/OpenAI/Ollama) dietro l'interfaccia `Reviewer`.
+
+## Licenza
+
+[MIT](LICENSE) © Cerix

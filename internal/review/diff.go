@@ -35,15 +35,15 @@ func unifiedDiff(prev, cur map[string]string) string {
 		}
 		switch {
 		case !hadOld:
-			fmt.Fprintf(&b, "## NUOVO FILE: %s\n%s\n", name, n)
+			fmt.Fprintf(&b, "## NEW FILE: %s\n%s\n", name, n)
 		case !hasNew:
-			fmt.Fprintf(&b, "## FILE RIMOSSO: %s\n", name)
+			fmt.Fprintf(&b, "## REMOVED FILE: %s\n", name)
 		default:
-			fmt.Fprintf(&b, "## MODIFICATO: %s\n%s\n", name, diffTwo(name, o, n))
+			fmt.Fprintf(&b, "## MODIFIED: %s\n%s\n", name, diffTwo(name, o, n))
 		}
 	}
 	if b.Len() == 0 {
-		return "(nessuna differenza nei file rilevanti)\n"
+		return "(no differences in the relevant files)\n"
 	}
 	return b.String()
 }
@@ -75,5 +75,5 @@ func diffTwo(name, old, new string) string {
 
 // fallbackDiff è un confronto minimale quando `diff` non è disponibile.
 func fallbackDiff(old, new string) string {
-	return "--- versione approvata\n" + old + "\n+++ nuova versione\n" + new + "\n"
+	return "--- approved version\n" + old + "\n+++ new version\n" + new + "\n"
 }

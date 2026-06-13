@@ -25,6 +25,7 @@ import (
 	"caur/internal/passthrough"
 	"caur/internal/policy"
 	"caur/internal/review"
+	"caur/internal/ui"
 )
 
 func main() {
@@ -42,19 +43,19 @@ func main() {
 	case cli.OpPassthrough:
 		code, err := passthrough.Exec(cfg.YayPath, parsed.Args)
 		if err != nil {
-			fail("impossibile eseguire %s: %v", cfg.YayPath, err)
+			fail("cannot run %s: %v", cfg.YayPath, err)
 		}
 		os.Exit(code)
 
 	case cli.OpInstall:
 		names := parsed.Targets
 		if !reviewAndDecide(cfg, names, hasNoConfirm(args)) {
-			fmt.Fprintln(os.Stderr, "caur: installazione annullata dalla review.")
+			info("installation cancelled by review.")
 			os.Exit(1)
 		}
 		code, err := passthrough.Exec(cfg.YayPath, parsed.Args)
 		if err != nil {
-			fail("impossibile eseguire %s: %v", cfg.YayPath, err)
+			fail("cannot run %s: %v", cfg.YayPath, err)
 		}
 		os.Exit(code)
 
@@ -62,18 +63,18 @@ func main() {
 		names := append([]string{}, parsed.Targets...)
 		upd, err := aurUpgradeNames()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "caur: avviso, impossibile elencare gli aggiornamenti AUR: %v\n", err)
+			info("warning: cannot list AUR upgrades: %v", err)
 		}
 		names = append(names, upd...)
 		if len(names) == 0 {
-			fmt.Fprintln(os.Stderr, "caur: nessun aggiornamento AUR da revisionare.")
+			info("no AUR upgrades to review.")
 		} else if !reviewAndDecide(cfg, names, hasNoConfirm(args)) {
-			fmt.Fprintln(os.Stderr, "caur: aggiornamento annullato dalla review.")
+			info("upgrade cancelled by review.")
 			os.Exit(1)
 		}
 		code, err := passthrough.Exec(cfg.YayPath, parsed.Args)
 		if err != nil {
-			fail("impossibile eseguire %s: %v", cfg.YayPath, err)
+			fail("cannot run %s: %v", cfg.YayPath, err)
 		}
 		os.Exit(code)
 	}
@@ -96,7 +97,7 @@ type reviewedItem struct {
 func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked bool, c *cache.Cache) {
 	pkgs, err := aur.Resolve(names)
 	if err != nil {
-		fail("risoluzione AUR: %v", err)
+		fail("AUR resolution: %v", err)
 	}
 	reviewer, err := review.New(cfg)
 	if err != nil {
@@ -133,16 +134,16 @@ func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked
 		switch {
 		case hasPrev && prev.Hash == hash && cfg.CacheReviews:
 			baseRes, mode = prev.Result, "cache"
-			fmt.Fprintf(os.Stderr, "caur: %s invariato dall'ultima review (cache)\n", p.PackageBase)
+			progress("%s unchanged since last review (cache)", p.PackageBase)
 		case hasPrev && cfg.DiffReview && len(prev.Files) > 0:
 			mode = "diff"
-			fmt.Fprintf(os.Stderr, "caur: review delle modifiche di %s (diff)...\n", p.PackageBase)
+			progress("reviewing changes to %s (diff)…", p.PackageBase)
 			baseRes = runReview(func(ctx context.Context) (review.Result, error) {
 				return reviewer.ReviewDiff(ctx, aur.PkgFiles{PkgBase: p.PackageBase, Files: prev.Files}, pf, notes)
 			}, p.PackageBase)
 		default:
 			mode = "full"
-			fmt.Fprintf(os.Stderr, "caur: review di %s...\n", p.PackageBase)
+			progress("reviewing %s…", p.PackageBase)
 			baseRes = runReview(func(ctx context.Context) (review.Result, error) {
 				return reviewer.Review(ctx, pf, notes)
 			}, p.PackageBase)
@@ -179,7 +180,7 @@ func runReview(fn func(context.Context) (review.Result, error), base string) rev
 	defer cancel()
 	res, err := fn(ctx)
 	if err != nil {
-		fail("review fallita per %s: %v", base, err)
+		fail("review failed for %s: %v", base, err)
 	}
 	return res
 }
@@ -223,33 +224,33 @@ func supplyChainSignals(cfg config.Config, prev cache.Entry, hasPrev bool, p aur
 	switch {
 	case p.Orphaned():
 		findings = append(findings, review.Finding{
-			Severity: "high", File: "(AUR)", Title: "Pacchetto orfano (senza maintainer)",
-			Detail: "Il pacchetto non ha un maintainer su AUR: un PKGBUILD orfano può essere adottato da chiunque. Verifica con attenzione il contenuto.",
+			Severity: "high", File: "(AUR)", Title: "Orphaned package (no maintainer)",
+			Detail: "The package has no maintainer on AUR: an orphaned PKGBUILD can be adopted by anyone. Review its contents carefully.",
 		})
-		notes.WriteString("- Il pacchetto è ORFANO (nessun maintainer su AUR).\n")
+		notes.WriteString("- The package is ORPHANED (no maintainer on AUR).\n")
 		if hasPrev && prev.Maintainer != "" {
-			notes.WriteString(fmt.Sprintf("- In precedenza era mantenuto da %q.\n", prev.Maintainer))
+			notes.WriteString(fmt.Sprintf("- It was previously maintained by %q.\n", prev.Maintainer))
 		}
 	case hasPrev && prev.Maintainer != "" && prev.Maintainer != p.Maintainer:
 		findings = append(findings, review.Finding{
-			Severity: "high", File: "(AUR)", Title: "Maintainer cambiato",
-			Detail: fmt.Sprintf("Il maintainer è passato da %q a %q dall'ultima review approvata: un cambio di proprietà è un classico vettore di attacco supply-chain.", prev.Maintainer, p.Maintainer),
+			Severity: "high", File: "(AUR)", Title: "Maintainer changed",
+			Detail: fmt.Sprintf("The maintainer changed from %q to %q since the last approved review: a change of ownership is a classic supply-chain attack vector.", prev.Maintainer, p.Maintainer),
 		})
-		notes.WriteString(fmt.Sprintf("- Il MAINTAINER è cambiato: prima %q, ora %q.\n", prev.Maintainer, p.Maintainer))
+		notes.WriteString(fmt.Sprintf("- The MAINTAINER changed: was %q, now %q.\n", prev.Maintainer, p.Maintainer))
 	}
 
 	if p.OutOfDate != 0 {
 		findings = append(findings, review.Finding{
-			Severity: "low", File: "(AUR)", Title: "Segnalato out-of-date",
-			Detail: "Il pacchetto è marcato out-of-date su AUR; potrebbe essere trascurato dal maintainer.",
+			Severity: "low", File: "(AUR)", Title: "Flagged out-of-date",
+			Detail: "The package is flagged out-of-date on AUR; it may be neglected by the maintainer.",
 		})
 	}
 
 	if p.LastModified != 0 {
-		notes.WriteString(fmt.Sprintf("- Ultima modifica del pacchetto su AUR: %s.\n", time.Unix(p.LastModified, 0).Format("2006-01-02")))
+		notes.WriteString(fmt.Sprintf("- Package last modified on AUR: %s.\n", time.Unix(p.LastModified, 0).Format("2006-01-02")))
 	}
 	if p.Maintainer != "" {
-		notes.WriteString(fmt.Sprintf("- Maintainer attuale: %q (voti AUR: %d).\n", p.Maintainer, p.NumVotes))
+		notes.WriteString(fmt.Sprintf("- Current maintainer: %q (AUR votes: %d).\n", p.Maintainer, p.NumVotes))
 	}
 	return findings, notes.String()
 }
@@ -268,10 +269,10 @@ func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
 	proceed := !blocked
 	if blocked {
 		if noconfirm {
-			fmt.Fprintln(os.Stderr, "caur: rilievi di sicurezza presenti e --noconfirm attivo: blocco (fail-closed).")
+			info("security findings present and --noconfirm is set: blocking (fail-closed).")
 			return false
 		}
-		proceed = confirm("Sono stati rilevati possibili rischi. Procedere comunque con l'installazione?")
+		proceed = confirm("Possible risks were detected. Proceed with the installation anyway?")
 	}
 
 	if proceed {
@@ -283,12 +284,12 @@ func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
 // runReviewOnly esegue solo l'audit dei pacchetti dati, senza installare.
 func runReviewOnly(cfg config.Config, names []string) int {
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "uso: caur review <pkg> [pkg...]")
+		fmt.Fprintln(os.Stderr, "usage: caur review <pkg> [pkg...]")
 		return 2
 	}
 	items, _, c := reviewAll(cfg, names)
 	if len(items) == 0 {
-		fmt.Fprintln(os.Stderr, "caur: nessuno dei pacchetti indicati è nell'AUR.")
+		info("none of the given packages are in the AUR.")
 		return 0
 	}
 	renderItems(items)
@@ -320,48 +321,134 @@ func persist(c *cache.Cache, items []reviewedItem) {
 	}
 }
 
-// renderItems stampa i report di tutti i pacchetti.
+// renderItems stampa il report di tutti i pacchetti, allineato e colorato.
 func renderItems(items []reviewedItem) {
-	fmt.Fprintln(os.Stderr)
+	out := os.Stderr
+	width := ui.Width()
+
+	// Larghezza della colonna nome, comune a tutti i pacchetti.
+	nameW := 12
+	for _, it := range items {
+		if len(it.base) > nameW {
+			nameW = len(it.base)
+		}
+	}
+	if nameW > 32 {
+		nameW = 32
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "%s %s\n\n", ui.Bold("caur"), ui.Dim("security review"))
+
+	blocked := 0
 	for _, it := range items {
 		if it.mode == "trusted" {
-			fmt.Fprintf(os.Stderr, "  ✓ %s  (allowlist)\n", it.base)
+			fmt.Fprintf(out, "  %s %s  %s\n", ui.Green("✓"), ui.Bold(ui.Pad(it.base, nameW)), ui.Dim("allowlist"))
 			continue
 		}
-		renderResult(it.base, it.result, it.decision, it.mode)
+		if it.decision.NeedConfirm {
+			blocked++
+		}
+		renderResult(out, it, nameW, width)
 	}
-	fmt.Fprintln(os.Stderr)
+
+	fmt.Fprintln(out)
+	if blocked > 0 {
+		fmt.Fprintf(out, "%s %s\n\n", ui.RedBold("✗"),
+			ui.Bold(fmt.Sprintf("%d package(s) need your confirmation", blocked)))
+	} else {
+		fmt.Fprintf(out, "%s %s\n\n", ui.GreenBold("✓"), ui.Bold("all packages clear"))
+	}
 }
 
-// renderResult stampa il report di una review.
-func renderResult(base string, r review.Result, d policy.Decision, mode string) {
-	mark := "✓"
-	if d.NeedConfirm {
-		mark = "⚠"
-	}
-	tag := ""
-	if mode == "diff" {
-		tag = " (diff)"
-	} else if mode == "cache" {
-		tag = " (cache)"
-	}
-	fmt.Fprintf(os.Stderr, "  %s %s%s  [%s, rischio %d/100]\n", mark, base, tag, strings.ToUpper(emptyTo(r.Verdict, "?")), r.Score)
-	if r.Summary != "" {
-		fmt.Fprintf(os.Stderr, "      %s\n", r.Summary)
-	}
-	for _, f := range r.Findings {
-		fmt.Fprintf(os.Stderr, "      - [%s] %s", strings.ToUpper(f.Severity), f.Title)
-		if f.File != "" {
-			fmt.Fprintf(os.Stderr, " (%s)", f.File)
+// renderResult stampa il report di una singola review.
+func renderResult(out *os.File, it reviewedItem, nameW, width int) {
+	r := it.result
+	mark := ui.Green("✓")
+	if it.decision.NeedConfirm {
+		if strings.ToLower(r.Verdict) == "malicious" {
+			mark = ui.RedBold("✗")
+		} else {
+			mark = ui.YellowBold("⚠")
 		}
-		fmt.Fprintln(os.Stderr)
-		if f.Detail != "" {
-			fmt.Fprintf(os.Stderr, "        %s\n", f.Detail)
+	}
+
+	tag := ""
+	switch it.mode {
+	case "diff":
+		tag = "  " + ui.Dim("(diff)")
+	case "cache":
+		tag = "  " + ui.Dim("(cache)")
+	}
+
+	fmt.Fprintf(out, "  %s %s  %s  %s%s\n",
+		mark, ui.Bold(ui.Pad(it.base, nameW)),
+		ui.Pad(verdictBadge(r.Verdict), 11), riskBadge(r.Score), tag)
+
+	for _, line := range ui.Wrap(r.Summary, "", width-6) {
+		fmt.Fprintf(out, "      %s\n", line)
+	}
+
+	for _, f := range r.Findings {
+		head := severityBadge(f.Severity) + "  " + f.Title
+		if f.File != "" {
+			head += "  " + ui.Dim("· "+f.File)
+		}
+		fmt.Fprintf(out, "      %s %s\n", ui.Dim("•"), head)
+		for _, line := range ui.Wrap(f.Detail, "", width-10) {
+			fmt.Fprintf(out, "          %s\n", line)
 		}
 		if f.Evidence != "" {
-			fmt.Fprintf(os.Stderr, "        > %s\n", strings.TrimSpace(f.Evidence))
+			for _, line := range ui.Wrap(strings.TrimSpace(f.Evidence), "", width-12) {
+				fmt.Fprintf(out, "          %s\n", ui.Dim("│ "+line))
+			}
 		}
 	}
+}
+
+// verdictBadge restituisce il verdetto colorato (maiuscolo).
+func verdictBadge(v string) string {
+	up := strings.ToUpper(emptyTo(v, "?"))
+	switch strings.ToLower(v) {
+	case "clean":
+		return ui.GreenBold(up)
+	case "suspicious":
+		return ui.YellowBold(up)
+	default: // malicious, reject, sconosciuto
+		return ui.RedBold(up)
+	}
+}
+
+// riskBadge colora il punteggio di rischio in base alla soglia.
+func riskBadge(score int) string {
+	s := fmt.Sprintf("risk %d/100", score)
+	switch {
+	case score < 30:
+		return ui.Green(s)
+	case score < 70:
+		return ui.Yellow(s)
+	default:
+		return ui.Red(s)
+	}
+}
+
+// severityBadge restituisce la severità colorata e allineata.
+func severityBadge(sev string) string {
+	up := strings.ToUpper(emptyTo(sev, "INFO"))
+	var colored string
+	switch strings.ToLower(sev) {
+	case "critical":
+		colored = ui.RedBold(up)
+	case "high":
+		colored = ui.Red(up)
+	case "medium":
+		colored = ui.Yellow(up)
+	case "low":
+		colored = ui.Cyan(up)
+	default:
+		colored = ui.Gray(up)
+	}
+	return ui.Pad(colored, 8)
 }
 
 // aurUpgradeNames elenca i pacchetti foreign (-Qm) che hanno una versione più
@@ -396,9 +483,9 @@ func aurUpgradeNames() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, info := range infos {
-			if vercmp(local[info.Name], info.Version) < 0 {
-				candidates = append(candidates, info.Name)
+		for _, inf := range infos {
+			if vercmp(local[inf.Name], inf.Version) < 0 {
+				candidates = append(candidates, inf.Name)
 			}
 		}
 	}
@@ -426,14 +513,14 @@ func vercmp(a, b string) int {
 }
 
 func confirm(question string) bool {
-	fmt.Fprintf(os.Stderr, "%s [y/N] ", question)
+	fmt.Fprintf(os.Stderr, "%s %s ", ui.YellowBold(question), ui.Dim("[y/N]"))
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return false
 	}
 	line = strings.ToLower(strings.TrimSpace(line))
-	return line == "y" || line == "yes" || line == "s" || line == "si"
+	return line == "y" || line == "yes"
 }
 
 func hasNoConfirm(args []string) bool {
@@ -456,7 +543,17 @@ func emptyTo(s, fallback string) string {
 	return s
 }
 
+// info stampa un messaggio informativo con prefisso "caur".
+func info(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", ui.Cyan("caur"), fmt.Sprintf(format, a...))
+}
+
+// progress stampa una riga di stato attenuata.
+func progress(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "  %s %s\n", ui.Dim("→"), ui.Dim(fmt.Sprintf(format, a...)))
+}
+
 func fail(format string, a ...any) {
-	fmt.Fprintf(os.Stderr, "caur: "+format+"\n", a...)
+	fmt.Fprintf(os.Stderr, "%s %s\n", ui.RedBold("caur error:"), fmt.Sprintf(format, a...))
 	os.Exit(1)
 }

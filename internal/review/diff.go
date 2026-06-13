@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// unifiedDiff produce un diff unificato tra i file della versione precedente e
-// quella nuova, file per file. Usa l'utility di sistema `diff -u`; se non è
-// disponibile ricade su un confronto testuale grezzo.
+// unifiedDiff produces a unified diff between the previous and new versions of
+// the files, file by file. It uses the system `diff -u`; if unavailable it
+// falls back to a raw textual comparison.
 func unifiedDiff(prev, cur map[string]string) string {
 	names := map[string]bool{}
 	for n := range prev {
@@ -31,7 +31,7 @@ func unifiedDiff(prev, cur map[string]string) string {
 		o, hadOld := prev[name]
 		n, hasNew := cur[name]
 		if o == n {
-			continue // invariato
+			continue // unchanged
 		}
 		switch {
 		case !hadOld:
@@ -48,7 +48,7 @@ func unifiedDiff(prev, cur map[string]string) string {
 	return b.String()
 }
 
-// diffTwo restituisce il diff unificato di due versioni di un file.
+// diffTwo returns the unified diff of two versions of a file.
 func diffTwo(name, old, new string) string {
 	tmp, err := os.MkdirTemp("", "caur-diff-")
 	if err != nil {
@@ -67,13 +67,13 @@ func diffTwo(name, old, new string) string {
 		"--label", "a/"+name, "--label", "b/"+name,
 		oldPath, newPath).Output()
 	if len(out) == 0 && err != nil {
-		// diff non disponibile o errore reale (exit code 1 = differenze, ok).
+		// diff unavailable or a real error (exit code 1 = differences, ok).
 		return fallbackDiff(old, new)
 	}
 	return string(out)
 }
 
-// fallbackDiff è un confronto minimale quando `diff` non è disponibile.
+// fallbackDiff is a minimal comparison when `diff` is unavailable.
 func fallbackDiff(old, new string) string {
 	return "--- approved version\n" + old + "\n+++ new version\n" + new + "\n"
 }

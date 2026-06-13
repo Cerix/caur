@@ -1,5 +1,5 @@
-// Package passthrough esegue il motore AUR sottostante (yay) con gli argomenti
-// dati, inoltrando stdin/stdout/stderr in modo trasparente.
+// Package passthrough runs the underlying AUR engine (yay) with the given
+// arguments, forwarding stdin/stdout/stderr transparently.
 package passthrough
 
 import (
@@ -8,8 +8,8 @@ import (
 	"os/exec"
 )
 
-// Exec lancia yay con gli argomenti forniti. Restituisce il codice di uscita
-// del processo (0 se ok), oppure -1 in caso di errore di avvio.
+// Exec runs yay with the given arguments. It returns the process exit code
+// (0 on success), or -1 on a startup error.
 func Exec(yayPath string, args []string) (int, error) {
 	if yayPath == "" {
 		yayPath = "yay"

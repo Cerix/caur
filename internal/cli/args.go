@@ -1,33 +1,33 @@
-// Package cli classifica gli argomenti stile pacman/yay per decidere se
-// l'operazione richiede una review (install/upgrade di pacchetti AUR) oppure
-// va passata invariata a yay (ricerca, query, rimozione, ...).
+// Package cli classifies pacman/yay-style arguments to decide whether an
+// operation needs a review (install/upgrade of AUR packages) or should be
+// passed unchanged to yay (search, query, removal, ...).
 package cli
 
 import "strings"
 
-// Op è il tipo di operazione richiesta.
+// Op is the kind of requested operation.
 type Op int
 
 const (
-	// OpPassthrough: niente review, esegui yay con gli stessi argomenti.
+	// OpPassthrough: no review, run yay with the same arguments.
 	OpPassthrough Op = iota
-	// OpInstall: install di pacchetti espliciti -> review prima di installare.
+	// OpInstall: install of explicit packages -> review before installing.
 	OpInstall
-	// OpUpgrade: aggiornamento di sistema -> review dei PKGBUILD AUR cambiati.
+	// OpUpgrade: system upgrade -> review the changed AUR PKGBUILDs.
 	OpUpgrade
 )
 
-// Parsed è il risultato della classificazione.
+// Parsed is the result of classification.
 type Parsed struct {
 	Op      Op
-	Targets []string // nomi di pacchetto espliciti (senza i flag)
-	Args    []string // argomenti da passare a yay (eventualmente riscritti)
+	Targets []string // explicit package names (without flags)
+	Args    []string // arguments to pass to yay (possibly rewritten)
 }
 
-// Classify analizza gli argomenti della riga di comando.
+// Classify analyzes the command-line arguments.
 func Classify(args []string) Parsed {
-	// Disinstallazione: `-Uni`/`--uninstall` è un alias di caur (non un'op pacman
-	// valida) tradotto in una rimozione yay completa. Non serve review.
+	// Uninstall: `-Uni`/`--uninstall` is a caur alias (not a valid pacman op)
+	// rewritten into a full yay removal. No review needed.
 	if rewritten, ok := rewriteUninstall(args); ok {
 		return Parsed{Op: OpPassthrough, Args: rewritten}
 	}
@@ -51,16 +51,16 @@ func Classify(args []string) Parsed {
 
 	isSync := letters['S'] || long["--sync"]
 
-	// Nessuna operazione di sync: parole nude -> ricerca; tutto il resto passa.
+	// Not a sync operation: bare words -> search; everything else passes through.
 	if !isSync {
 		if len(targets) > 0 && len(targets) == len(args) {
-			// Solo parole nude: trattale come ricerca per non bypassare la review.
+			// Only bare words: treat them as a search so the review isn't bypassed.
 			return Parsed{Op: OpPassthrough, Args: append([]string{"-Ss"}, targets...)}
 		}
 		return Parsed{Op: OpPassthrough, Args: args}
 	}
 
-	// Sotto-operazioni di sync in sola lettura: passthrough.
+	// Read-only sync sub-operations: passthrough.
 	readOnly := letters['s'] || long["--search"] ||
 		letters['i'] || long["--info"] ||
 		letters['c'] || long["--clean"] ||
@@ -77,13 +77,13 @@ func Classify(args []string) Parsed {
 	if len(targets) > 0 {
 		return Parsed{Op: OpInstall, Targets: targets, Args: args}
 	}
-	// Es. -Sy (solo refresh dei db): nessun pacchetto da revisionare.
+	// e.g. -Sy (only refresh the db): no package to review.
 	return Parsed{Op: OpPassthrough, Args: args}
 }
 
-// rewriteUninstall riconosce l'alias di disinstallazione di caur (`-Uni` o
-// `--uninstall`) e lo riscrive in `yay -Rns <targets>`, conservando gli altri
-// argomenti (es. --noconfirm). Ritorna ok=false se l'alias non è presente.
+// rewriteUninstall recognizes caur's uninstall alias (`-Uni` or `--uninstall`)
+// and rewrites it into `yay -Rns <targets>`, preserving the other arguments
+// (e.g. --noconfirm). Returns ok=false if the alias is not present.
 func rewriteUninstall(args []string) ([]string, bool) {
 	found := false
 	out := []string{"-Rns"}

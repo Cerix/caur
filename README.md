@@ -1,97 +1,97 @@
 # caur
 
-Un front-end per [`yay`](https://github.com/Jguer/yay) che fa **revisionare il
-`PKGBUILD`** (e i file collegati: `.install`, `.SRCINFO`, patch, script) da un
-agente Claude **prima** di costruire o installare un pacchetto dall'AUR. Lo scopo
-è ridurre il rischio di installare malware da PKGBUILD ostili, mantenendo il
-workflow familiare di yay/pacman.
+A front-end for [`yay`](https://github.com/Jguer/yay) that has a Claude agent
+**review the `PKGBUILD`** (and related files: `.install`, `.SRCINFO`, patches,
+scripts) **before** building or installing a package from the AUR. The goal is
+to reduce the risk of installing malware from hostile PKGBUILDs while keeping the
+familiar yay/pacman workflow.
 
-`caur` non reimplementa la risoluzione delle dipendenze né `makepkg`: scarica e
-revisiona, e su approvazione **delega a yay** l'installazione vera e propria.
+`caur` does not reimplement dependency resolution or `makepkg`: it downloads and
+reviews, and on approval **delegates the actual install to yay**.
 
-## Come funziona
+## How it works
 
 ```
 caur -S <pkg>
    │
-   ├─ identifica i pacchetti AUR (RPC v5) e risolve le dipendenze AUR
-   ├─ scarica PKGBUILD + file collegati (git, in cache)
-   ├─ review con `claude -p` → { verdict, score 0-100, findings[] }
-   ├─ policy: "clean" procede; qualsiasi rilievo BLOCCA e chiede conferma
-   └─ se approvato → yay -S <pkg>   (build, deps, install)
+   ├─ identify AUR packages (RPC v5) and resolve AUR dependencies
+   ├─ download PKGBUILD + related files (git, cached)
+   ├─ review with `claude -p` → { verdict, score 0-100, findings[] }
+   ├─ policy: "clean" proceeds; any significant finding BLOCKS and asks
+   └─ if approved → yay -S <pkg>   (build, deps, install)
 ```
 
-I pacchetti dei **repo ufficiali** non vengono revisionati: sono firmati e li
-gestisce pacman/yay. La review riguarda solo l'AUR.
+Packages from the **official repos** are not reviewed: they are signed and
+handled by pacman/yay. The review only concerns the AUR.
 
-**Fail-closed:** se la review non si completa (errore del backend, timeout),
-l'installazione viene bloccata.
+**Fail-closed:** if the review does not complete (backend error, timeout), the
+installation is blocked.
 
-### Review incrementale (diff-only)
+### Incremental review (diff-only)
 
-Ogni esito approvato viene memorizzato in `~/.cache/caur/reviews.json` insieme
-allo snapshot dei file. Alla volta successiva:
+Each approved outcome is stored in `~/.cache/caur/reviews.json` together with a
+snapshot of the files. Next time:
 
-- file **identici** → esito riusato dalla cache, nessuna chiamata al modello;
-- file **cambiati** e versione precedente approvata → review del **solo diff**
-  (`diff_review`): si invia al modello unicamente ciò che è cambiato, valutando
-  se le modifiche introducono nuovi rischi (meno token, più focus);
-- prima review o cache assente → review completa.
+- **identical** files → outcome reused from the cache, no model call;
+- **changed** files with a previously approved version → review of **only the
+  diff** (`diff_review`): only what changed is sent to the model, assessing
+  whether the changes introduce new risks (fewer tokens, more focus);
+- first review or no cache → full review.
 
-La cache (e il baseline del maintainer) viene aggiornata **solo se procedi**:
-se rifiuti per via di un rilievo, alla volta dopo verrai riavvisato.
+The cache (and the maintainer baseline) is updated **only if you proceed**: if
+you decline because of a finding, you will be warned again next time.
 
-### Segnali supply-chain (`maintainer_change`)
+### Supply-chain signals (`maintainer_change`)
 
-Oltre al contenuto, caur usa i metadati dell'AUR come segnali deterministici,
-mostrati nel report e iniettati nel prompt:
+Beyond the content, caur uses the AUR metadata as deterministic signals, shown
+in the report and injected into the prompt:
 
-- **pacchetto orfano** (nessun maintainer su AUR) → finding ad alta severità;
-- **maintainer cambiato** rispetto all'ultima review approvata → finding ad alta
-  severità (classico vettore supply-chain). Il confronto è relativo all'ultima
-  volta che *tu* hai approvato il pacchetto (l'AUR non espone lo storico dei
-  maintainer via RPC);
-- **out-of-date** → finding a bassa severità;
-- data dell'ultima modifica e numero di voti → contesto per il modello.
+- **orphaned package** (no maintainer on AUR) → high-severity finding;
+- **maintainer changed** relative to the last approved review → high-severity
+  finding (a classic supply-chain vector). The comparison is relative to the
+  last time *you* approved the package (the AUR does not expose maintainer
+  history via RPC);
+- **out-of-date** → low-severity finding;
+- last-modified date and vote count → context for the model.
 
-Un finding ad alta severità fa scattare il blocco con richiesta di conferma.
+A high-severity finding triggers the block with a confirmation prompt.
 
-## Uso
+## Usage
 
 ```sh
-caur <termine>        # cerca pacchetti (passthrough a yay -Ss)
-caur -Ss <termine>    # idem
-caur -S <pkg>         # installa <pkg> dopo la review
-caur -Syu             # aggiorna il sistema, revisionando gli update AUR
-caur -Uni <pkg>       # disinstalla <pkg> (alias di `yay -Rns`)
-caur review <pkg>     # audita <pkg> senza installarlo
-caur -Q / -R / ...    # operazioni di sola lettura/rimozione: passthrough a yay
+caur <term>           # search packages (passthrough to yay -Ss)
+caur -Ss <term>       # same
+caur -S <pkg>         # install <pkg> after the review
+caur -Syu             # upgrade the system, reviewing the AUR updates
+caur -Uni <pkg>       # uninstall <pkg> (alias for `yay -Rns`)
+caur review <pkg>     # audit <pkg> without installing it
+caur -Q / -R / ...    # read-only/removal operations: passthrough to yay
 ```
 
-Con `--noconfirm`, un pacchetto con rilievi viene **bloccato** (non si
-auto-approva del malware in contesti non interattivi).
+With `--noconfirm`, a package with findings is **blocked** (it does not
+auto-approve malware in non-interactive contexts).
 
-## Configurazione
+## Configuration
 
-Copia `config.example.toml` in `~/.config/caur/config.toml`. Chiavi principali:
+Copy `config.example.toml` to `~/.config/caur/config.toml`. Main keys:
 
-| chiave               | default        | descrizione                                          |
+| key                  | default        | description                                          |
 |----------------------|----------------|------------------------------------------------------|
-| `backend`            | `claude-cli`   | motore di review (per ora solo il CLI `claude`)      |
-| `model`              | `""`           | alias modello; vuoto = default del CLI               |
-| `block_threshold`    | `1`            | n. di findings che fa scattare il blocco             |
-| `auto_approve_clean` | `true`         | "clean" procede senza conferma                       |
-| `cache_reviews`      | `true`         | riusa la review se i file non cambiano               |
-| `diff_review`        | `true`         | sugli update revisiona solo il diff vs ultima versione |
-| `maintainer_change`  | `true`         | segnala/blocca se orfano o se il maintainer è cambiato |
-| `trusted_packages`   | `[]`           | allowlist di pkgbase che saltano la review           |
-| `yay_path`           | `yay`          | eseguibile del motore AUR sottostante                |
+| `backend`            | `claude-cli`   | review engine (for now only the `claude` CLI)        |
+| `model`              | `""`           | model alias; empty = CLI default                     |
+| `block_threshold`    | `1`            | number of significant findings that triggers a block |
+| `auto_approve_clean` | `true`         | "clean" proceeds without confirmation                |
+| `cache_reviews`      | `true`         | reuse the review if the files are unchanged          |
+| `diff_review`        | `true`         | on updates, review only the diff vs the last version |
+| `maintainer_change`  | `true`         | flag/block if orphaned or if the maintainer changed  |
+| `trusted_packages`   | `[]`           | allowlist of pkgbases that skip the review           |
+| `yay_path`           | `yay`          | executable of the underlying AUR engine              |
 
-## Requisiti
+## Requirements
 
-- Arch Linux con `yay`, `pacman`, `git`
-- Il CLI `claude` installato e loggato (`claude` in `PATH`)
-- Go ≥ 1.24 per compilare
+- Arch Linux with `yay`, `pacman`, `git`
+- The `claude` CLI installed and logged in (`claude` in `PATH`)
+- Go ≥ 1.24 to build
 
 ## Build
 
@@ -102,17 +102,17 @@ go build -o caur ./cmd/caur
 ## Test
 
 ```sh
-go test ./...                                   # unit test (offline)
-CAUR_LIVE=1 go test ./internal/review/ -run Hostile -v   # review live (rete + claude)
+go test ./...                                            # unit tests (offline)
+CAUR_LIVE=1 go test ./internal/review/ -run Hostile -v   # live review (network + claude)
 ```
 
-## Stato e idee future
+## Status and future ideas
 
-MVP funzionante (wrapper su yay, backend `claude-cli`). Idee successive:
-pre-scan euristico per ridurre i token, audit log persistente, allowlist per
-maintainer, verifica dei checksum vs `.SRCINFO`, backend aggiuntivi (API
-Anthropic/OpenAI/Ollama) dietro l'interfaccia `Reviewer`.
+Working MVP (yay wrapper, `claude-cli` backend). Later ideas: heuristic
+pre-scan to reduce tokens, persistent audit log, per-maintainer allowlist,
+checksum verification vs `.SRCINFO`, additional backends (Anthropic/OpenAI/
+Ollama API) behind the `Reviewer` interface.
 
-## Licenza
+## License
 
 [MIT](LICENSE) © Cerix

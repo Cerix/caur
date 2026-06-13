@@ -1,35 +1,35 @@
-# Configurazione di caur — copiare in ~/.config/caur/config.toml
-# Tutte le chiavi sono opzionali: i valori qui sotto sono i default.
+# caur configuration — copy to ~/.config/caur/config.toml
+# All keys are optional: the values below are the defaults.
 
-# Backend del motore di review. Per ora solo "claude-cli" (usa il CLI `claude`
-# in modalità headless, sfruttando il login esistente — nessuna API key).
+# Review engine backend. For now only "claude-cli" (uses the `claude` CLI in
+# headless mode, relying on the existing login — no API key).
 backend = "claude-cli"
 
-# Alias del modello da passare al backend. Lasciare vuoto per usare il modello
-# con cui il CLI claude è loggato. Esempi: "claude-fable-5", "opus".
+# Model alias to pass to the backend. Leave empty to use the model the claude
+# CLI is logged in with. Examples: "claude-fable-5", "opus".
 model = ""
 
-# Numero di rilievi *significativi* (severità medium o superiore) che fa scattare
-# il blocco. 1 = qualsiasi rilievo medium+ blocca. I rilievi low/info non bloccano
-# da soli; un verdetto diverso da "clean" blocca comunque.
+# Number of *significant* findings (severity medium or higher) that triggers a
+# block. 1 = any medium+ finding blocks. low/info findings do not block on their
+# own; a verdict other than "clean" blocks regardless.
 block_threshold = 1
 
-# Se true, un verdetto "clean" (e sotto soglia) procede senza chiedere conferma.
+# If true, a "clean" verdict (and below threshold) proceeds without asking.
 auto_approve_clean = true
 
-# Riusa l'esito della review quando i file del PKGBUILD non sono cambiati.
+# Reuse the review outcome when the PKGBUILD files are unchanged.
 cache_reviews = true
 
-# Sugli aggiornamenti, revisiona solo il DIFF rispetto all'ultima versione
-# approvata (meno token, focus sulle modifiche). Richiede cache_reviews.
+# On upgrades, review only the DIFF against the last approved version (fewer
+# tokens, focus on the changes). Requires cache_reviews.
 diff_review = true
 
-# Segnala (come finding ad alta severità, quindi blocca) se il pacchetto è
-# orfano o se il maintainer è cambiato rispetto all'ultima review approvata.
+# Flag (as a high-severity finding, which blocks) if the package is orphaned or
+# if the maintainer changed since the last approved review.
 maintainer_change = true
 
-# Allowlist di pkgbase fidati: saltano completamente la review.
+# Allowlist of trusted pkgbases: skip the review entirely.
 trusted_packages = []
 
-# Eseguibile/path del motore AUR sottostante.
+# Executable/path of the underlying AUR engine.
 yay_path = "yay"

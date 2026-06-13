@@ -1,12 +1,12 @@
-// Command caur è un front-end per yay che fa revisionare il PKGBUILD (e i file
-// collegati) da un agente Claude prima di costruire/installare un pacchetto AUR.
+// Command caur is a front-end for yay that has a Claude agent review the
+// PKGBUILD (and related files) before building/installing an AUR package.
 //
-//	caur <termine>        cerca pacchetti (passthrough a yay -Ss)
-//	caur -S <pkg>         installa <pkg> dopo la review
-//	caur -Syu             aggiorna il sistema, revisionando gli aggiornamenti AUR
-//	caur -Uni <pkg>       disinstalla <pkg> (alias di yay -Rns)
-//	caur review <pkg>     audita <pkg> senza installarlo
-//	caur -Q / -R / ...    operazioni di sola lettura/rimozione: passthrough
+//	caur <term>           search packages (passthrough to yay -Ss)
+//	caur -S <pkg>         install <pkg> after the review
+//	caur -Syu             upgrade the system, reviewing the AUR updates
+//	caur -Uni <pkg>       uninstall <pkg> (alias for yay -Rns)
+//	caur review <pkg>     audit <pkg> without installing it
+//	caur -Q / -R / ...    read-only/removal operations: passthrough
 package main
 
 import (
@@ -32,7 +32,7 @@ func main() {
 	args := os.Args[1:]
 	cfg := config.Load()
 
-	// Sotto-comando di solo audit, senza installare.
+	// Audit-only subcommand, without installing.
 	if len(args) > 0 && args[0] == "review" {
 		os.Exit(runReviewOnly(cfg, args[1:]))
 	}
@@ -80,20 +80,20 @@ func main() {
 	}
 }
 
-// reviewedItem raccoglie l'esito della review di un pacchetto.
+// reviewedItem holds the review outcome of one package.
 type reviewedItem struct {
 	base     string
-	result   review.Result // include i findings supply-chain
+	result   review.Result // includes the supply-chain findings
 	decision policy.Decision
 	mode     string // full | diff | cache | trusted
 	entry    cache.Entry
-	persist  bool // true se c'è qualcosa da salvare in cache su proceed
+	persist  bool // true if there is something to cache on proceed
 }
 
-// reviewAll risolve i target AUR e li revisiona, scegliendo per ciascuno la
-// modalità (cache se invariato, diff se c'è una versione approvata, altrimenti
-// completa) e aggiungendo i segnali supply-chain. Non scrive nulla su disco: la
-// persistenza è decisa dal chiamante (solo se si procede).
+// reviewAll resolves the AUR targets and reviews them, choosing for each the
+// mode (cache if unchanged, diff if there is an approved version, otherwise
+// full) and adding the supply-chain signals. It writes nothing to disk:
+// persistence is decided by the caller (only if proceeding).
 func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked bool, c *cache.Cache) {
 	pkgs, err := aur.Resolve(names)
 	if err != nil {
@@ -162,7 +162,7 @@ func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked
 			persist:  true,
 			entry: cache.Entry{
 				Hash:         hash,
-				Result:       baseRes, // senza i meta-findings, che vanno ricalcolati live
+				Result:       baseRes, // without the meta-findings, recomputed live
 				Files:        pf.Files,
 				Maintainer:   p.Maintainer,
 				Version:      p.Version,
@@ -174,7 +174,7 @@ func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked
 	return items, blocked, c
 }
 
-// runReview esegue una review con timeout, applicando il fail-closed.
+// runReview runs a review with a timeout, applying the fail-closed policy.
 func runReview(fn func(context.Context) (review.Result, error), base string) review.Result {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -185,8 +185,8 @@ func runReview(fn func(context.Context) (review.Result, error), base string) rev
 	return res
 }
 
-// withSignals fonde i findings supply-chain nel risultato e, se sono gravi,
-// impedisce che il verdetto resti "clean".
+// withSignals merges the supply-chain findings into the result and, if they are
+// serious, prevents the verdict from staying "clean".
 func withSignals(r review.Result, meta []review.Finding) review.Result {
 	if len(meta) == 0 {
 		return r
@@ -211,9 +211,9 @@ func hasConcerning(fs []review.Finding) bool {
 	return false
 }
 
-// supplyChainSignals deriva findings deterministici e una nota di contesto dai
-// metadati AUR: pacchetto orfano, cambio di maintainer rispetto all'ultima
-// review approvata, out-of-date, recency.
+// supplyChainSignals derives deterministic findings and a context note from the
+// AUR metadata: orphaned package, maintainer change relative to the last
+// approved review, out-of-date, recency.
 func supplyChainSignals(cfg config.Config, prev cache.Entry, hasPrev bool, p aur.Pkg) ([]review.Finding, string) {
 	if !cfg.MaintainerChange {
 		return nil, ""
@@ -255,12 +255,13 @@ func supplyChainSignals(cfg config.Config, prev cache.Entry, hasPrev bool, p aur
 	return findings, notes.String()
 }
 
-// reviewAndDecide revisiona i target e, se qualcosa è bloccato, mostra i report
-// e chiede conferma. Su proceed persiste la cache (baseline maintainer + file).
+// reviewAndDecide reviews the targets and, if anything is blocked, shows the
+// reports and asks for confirmation. On proceed it persists the cache
+// (maintainer baseline + files).
 func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
 	items, blocked, c := reviewAll(cfg, names)
 	if len(items) == 0 {
-		// Nessun pacchetto AUR coinvolto (tutti dai repo ufficiali, firmati).
+		// No AUR package involved (all from official, signed repos).
 		return true
 	}
 
@@ -281,7 +282,7 @@ func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
 	return proceed
 }
 
-// runReviewOnly esegue solo l'audit dei pacchetti dati, senza installare.
+// runReviewOnly only audits the given packages, without installing.
 func runReviewOnly(cfg config.Config, names []string) int {
 	if len(names) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: caur review <pkg> [pkg...]")
@@ -307,7 +308,7 @@ func runReviewOnly(cfg config.Config, names []string) int {
 	return 0
 }
 
-// persist salva nella cache gli esiti dei pacchetti revisionati.
+// persist saves the outcomes of the reviewed packages to the cache.
 func persist(c *cache.Cache, items []reviewedItem) {
 	wrote := false
 	for _, it := range items {
@@ -321,12 +322,12 @@ func persist(c *cache.Cache, items []reviewedItem) {
 	}
 }
 
-// renderItems stampa il report di tutti i pacchetti, allineato e colorato.
+// renderItems prints the report for all packages, aligned and colored.
 func renderItems(items []reviewedItem) {
 	out := os.Stderr
 	width := ui.Width()
 
-	// Larghezza della colonna nome, comune a tutti i pacchetti.
+	// Name column width, common to all packages.
 	nameW := 12
 	for _, it := range items {
 		if len(it.base) > nameW {
@@ -361,7 +362,7 @@ func renderItems(items []reviewedItem) {
 	}
 }
 
-// renderResult stampa il report di una singola review.
+// renderResult prints the report for a single review.
 func renderResult(out *os.File, it reviewedItem, nameW, width int) {
 	r := it.result
 	mark := ui.Green("✓")
@@ -406,7 +407,7 @@ func renderResult(out *os.File, it reviewedItem, nameW, width int) {
 	}
 }
 
-// verdictBadge restituisce il verdetto colorato (maiuscolo).
+// verdictBadge returns the verdict colored (uppercase).
 func verdictBadge(v string) string {
 	up := strings.ToUpper(emptyTo(v, "?"))
 	switch strings.ToLower(v) {
@@ -414,12 +415,12 @@ func verdictBadge(v string) string {
 		return ui.GreenBold(up)
 	case "suspicious":
 		return ui.YellowBold(up)
-	default: // malicious, reject, sconosciuto
+	default: // malicious, reject, unknown
 		return ui.RedBold(up)
 	}
 }
 
-// riskBadge colora il punteggio di rischio in base alla soglia.
+// riskBadge colors the risk score based on its threshold.
 func riskBadge(score int) string {
 	s := fmt.Sprintf("risk %d/100", score)
 	switch {
@@ -432,7 +433,7 @@ func riskBadge(score int) string {
 	}
 }
 
-// severityBadge restituisce la severità colorata e allineata.
+// severityBadge returns the severity colored and aligned.
 func severityBadge(sev string) string {
 	up := strings.ToUpper(emptyTo(sev, "INFO"))
 	var colored string
@@ -451,8 +452,8 @@ func severityBadge(sev string) string {
 	return ui.Pad(colored, 8)
 }
 
-// aurUpgradeNames elenca i pacchetti foreign (-Qm) che hanno una versione più
-// recente nell'AUR.
+// aurUpgradeNames lists the foreign packages (-Qm) that have a newer version in
+// the AUR.
 func aurUpgradeNames() ([]string, error) {
 	out, err := exec.Command("pacman", "-Qm").Output()
 	if err != nil {
@@ -472,7 +473,7 @@ func aurUpgradeNames() ([]string, error) {
 	}
 
 	var candidates []string
-	// Interroga l'AUR a blocchi per non superare la lunghezza dell'URL.
+	// Query the AUR in chunks so the URL length is not exceeded.
 	const chunk = 150
 	for i := 0; i < len(names); i += chunk {
 		end := i + chunk
@@ -492,8 +493,8 @@ func aurUpgradeNames() ([]string, error) {
 	return candidates, nil
 }
 
-// vercmp confronta due versioni usando l'utility `vercmp` di pacman.
-// Ritorna <0 se a<b, 0 se uguali, >0 se a>b.
+// vercmp compares two versions using pacman's `vercmp` utility.
+// It returns <0 if a<b, 0 if equal, >0 if a>b.
 func vercmp(a, b string) int {
 	if a == "" || b == "" {
 		return 0
@@ -543,12 +544,12 @@ func emptyTo(s, fallback string) string {
 	return s
 }
 
-// info stampa un messaggio informativo con prefisso "caur".
+// info prints an informational message with the "caur" prefix.
 func info(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "%s %s\n", ui.Cyan("caur"), fmt.Sprintf(format, a...))
 }
 
-// progress stampa una riga di stato attenuata.
+// progress prints a dimmed status line.
 func progress(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "  %s %s\n", ui.Dim("→"), ui.Dim(fmt.Sprintf(format, a...)))
 }

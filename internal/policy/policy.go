@@ -1,7 +1,7 @@
-// Package policy traduce l'esito di una review in una decisione, secondo la
-// configurazione. Politica: il punteggio è sempre disponibile; qualsiasi
-// pacchetto non "clean" (o con abbastanza finding) viene bloccato e richiede
-// conferma esplicita dell'utente.
+// Package policy turns a review outcome into a decision, per the
+// configuration. Policy: the score is always available; any package that is not
+// "clean" (or has enough findings) is blocked and requires explicit user
+// confirmation.
 package policy
 
 import (
@@ -11,16 +11,16 @@ import (
 	"caur/internal/review"
 )
 
-// Decision è l'esito della valutazione per un singolo pacchetto.
+// Decision is the evaluation outcome for a single package.
 type Decision struct {
-	Allow       bool   // true: può procedere senza conferma
-	NeedConfirm bool   // true: bloccato, serve conferma esplicita
-	Reason      string // motivo sintetico
+	Allow       bool   // true: may proceed without confirmation
+	NeedConfirm bool   // true: blocked, explicit confirmation required
+	Reason      string // short reason
 }
 
-// Evaluate applica la politica a un esito di review. Bloccano: un verdetto non
-// "clean", oppure un numero di findings *significativi* (severità medium o
-// superiore) >= block_threshold. I rilievi low/info da soli non bloccano.
+// Evaluate applies the policy to a review outcome. Blocking conditions: a
+// verdict other than "clean", or a number of *significant* findings (severity
+// medium or higher) >= block_threshold. low/info findings alone do not block.
 func Evaluate(r review.Result, cfg config.Config) Decision {
 	clean := r.Verdict == "clean"
 	significant := 0
@@ -39,7 +39,7 @@ func Evaluate(r review.Result, cfg config.Config) Decision {
 	}
 }
 
-// isSignificant indica se una severità concorre al blocco.
+// isSignificant reports whether a severity counts toward blocking.
 func isSignificant(severity string) bool {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "medium", "high", "critical":
@@ -48,7 +48,7 @@ func isSignificant(severity string) bool {
 	return false
 }
 
-// Blocked indica se almeno una decisione richiede conferma.
+// Blocked reports whether at least one decision requires confirmation.
 func Blocked(ds []Decision) bool {
 	for _, d := range ds {
 		if d.NeedConfirm {

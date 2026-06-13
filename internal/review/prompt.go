@@ -8,8 +8,8 @@ import (
 	"caur/internal/aur"
 )
 
-// buildPrompt costruisce il prompt da inviare al modello: istruzioni da auditor
-// di sicurezza, schema JSON di output e contenuto dei file del pacchetto.
+// buildPrompt builds the prompt sent to the model: security-auditor
+// instructions, the output JSON schema and the package file contents.
 func buildPrompt(pf aur.PkgFiles, notes string) string {
 	var b strings.Builder
 
@@ -59,9 +59,9 @@ If you find nothing suspicious: verdict "clean", low score, findings [].
 	return b.String()
 }
 
-// buildDiffPrompt chiede di valutare solo le modifiche tra la versione già
-// approvata e quella nuova. Lo schema di output è identico, ma il verdetto e lo
-// score si riferiscono al rischio introdotto DALLE MODIFICHE.
+// buildDiffPrompt asks the model to assess only the changes between the
+// already-approved version and the new one. The output schema is identical, but
+// the verdict and score refer to the risk introduced BY THE CHANGES.
 func buildDiffPrompt(prev, cur aur.PkgFiles, notes string) string {
 	var b strings.Builder
 
@@ -103,7 +103,7 @@ func writeNotes(b *strings.Builder, notes string) {
 }
 
 func writeFiles(b *strings.Builder, pf aur.PkgFiles) {
-	// Ordina i nomi per un output deterministico (utile anche per la cache).
+	// Sort the names for deterministic output (also useful for the cache).
 	names := make([]string, 0, len(pf.Files))
 	for name := range pf.Files {
 		names = append(names, name)

@@ -1,6 +1,6 @@
-// Package aur interroga l'AUR (RPC v5) per identificare i pacchetti presenti
-// nell'AUR e risolverne la chiusura delle dipendenze, e scarica i PKGBUILD e i
-// file collegati tramite git per sottoporli alla review.
+// Package aur queries the AUR (RPC v5) to identify packages present in the AUR
+// and resolve their dependency closure, and downloads PKGBUILDs and related
+// files via git so they can be reviewed.
 package aur
 
 import (
@@ -19,7 +19,7 @@ import (
 const rpcBase = "https://aur.archlinux.org/rpc/v5/info"
 const gitBase = "https://aur.archlinux.org"
 
-// Pkg è il sottoinsieme della risposta RPC che ci interessa.
+// Pkg is the subset of the RPC response we care about.
 type Pkg struct {
 	Name         string   `json:"Name"`
 	PackageBase  string   `json:"PackageBase"`
@@ -28,26 +28,26 @@ type Pkg struct {
 	MakeDepends  []string `json:"MakeDepends"`
 	CheckDepends []string `json:"CheckDepends"`
 
-	// Segnali supply-chain.
-	Maintainer   string `json:"Maintainer"`   // "" (null) = pacchetto orfano
-	LastModified int64  `json:"LastModified"` // unix: ultima modifica del pacchetto
-	OutOfDate    int64  `json:"OutOfDate"`    // unix: segnalato out-of-date (0 = no)
+	// Supply-chain signals.
+	Maintainer   string `json:"Maintainer"`   // "" (null) = orphaned package
+	LastModified int64  `json:"LastModified"` // unix: package last modified
+	OutOfDate    int64  `json:"OutOfDate"`    // unix: flagged out-of-date (0 = no)
 	NumVotes     int    `json:"NumVotes"`
 }
 
-// Orphaned indica se il pacchetto è senza maintainer.
+// Orphaned reports whether the package has no maintainer.
 func (p Pkg) Orphaned() bool { return strings.TrimSpace(p.Maintainer) == "" }
 
 type rpcResponse struct {
-	ResultCount int   `json:"resultcount"`
-	Results     []Pkg `json:"results"`
+	ResultCount int    `json:"resultcount"`
+	Results     []Pkg  `json:"results"`
 	Error       string `json:"error"`
 }
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-// Info interroga l'RPC per i nomi dati e restituisce solo quelli presenti
-// nell'AUR (i pacchetti dei repo ufficiali non compaiono nei risultati).
+// Info queries the RPC for the given names and returns only those present in
+// the AUR (official-repo packages do not appear in the results).
 func Info(names []string) ([]Pkg, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -67,7 +67,7 @@ func Info(names []string) ([]Pkg, error) {
 	}
 	var r rpcResponse
 	if err := json.Unmarshal(body, &r); err != nil {
-		return nil, fmt.Errorf("parse risposta RPC: %w", err)
+		return nil, fmt.Errorf("parse RPC response: %w", err)
 	}
 	if r.Error != "" {
 		return nil, fmt.Errorf("AUR RPC: %s", r.Error)
@@ -75,9 +75,9 @@ func Info(names []string) ([]Pkg, error) {
 	return r.Results, nil
 }
 
-// Resolve parte dai nomi richiesti e risolve ricorsivamente la chiusura delle
-// dipendenze che sono anch'esse nell'AUR. Restituisce i pacchetti unici per
-// PackageBase da revisionare.
+// Resolve starts from the requested names and recursively resolves the closure
+// of dependencies that are themselves in the AUR. It returns the packages
+// unique by PackageBase to review.
 func Resolve(names []string) ([]Pkg, error) {
 	seenName := map[string]bool{}
 	seenBase := map[string]bool{}
@@ -85,7 +85,7 @@ func Resolve(names []string) ([]Pkg, error) {
 
 	queue := append([]string{}, names...)
 	for len(queue) > 0 {
-		// Prendi i nomi non ancora interrogati.
+		// Take the names not yet queried.
 		var batch []string
 		for _, n := range queue {
 			if !seenName[n] {
@@ -107,7 +107,7 @@ func Resolve(names []string) ([]Pkg, error) {
 				seenBase[p.PackageBase] = true
 				out = append(out, p)
 			}
-			// Accoda le dipendenze (potrebbero a loro volta essere AUR).
+			// Enqueue the dependencies (they might also be AUR packages).
 			for _, d := range concat(p.Depends, p.MakeDepends, p.CheckDepends) {
 				name := stripConstraint(d)
 				if name != "" && !seenName[name] {
@@ -119,29 +119,29 @@ func Resolve(names []string) ([]Pkg, error) {
 	return out, nil
 }
 
-// PkgFiles raccoglie il contenuto dei file rilevanti di un pkgbase.
+// PkgFiles holds the content of the relevant files of a pkgbase.
 type PkgFiles struct {
 	PkgBase string
 	Dir     string
-	Files   map[string]string // nome file -> contenuto
+	Files   map[string]string // file name -> content
 }
 
-// Fetch fa uno shallow clone (o aggiorna) del repo git del pkgbase nella cache
-// e raccoglie PKGBUILD, *.install, .SRCINFO e gli altri file versionati
-// (patch e sorgenti locali) che concorrono alla build.
+// Fetch shallow-clones (or updates) the pkgbase git repo into the cache and
+// collects PKGBUILD, *.install, .SRCINFO and the other versioned files
+// (patches and local sources) that take part in the build.
 func Fetch(pkgBase, cacheDir string) (PkgFiles, error) {
 	dir := filepath.Join(cacheDir, pkgBase)
 	repoURL := gitBase + "/" + pkgBase + ".git"
 
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		// Repo già presente: aggiorna.
+		// Repo already present: update it.
 		cmd := exec.Command("git", "-C", dir, "fetch", "--depth", "1", "origin")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return PkgFiles{}, fmt.Errorf("git fetch %s: %v: %s", pkgBase, err, out)
 		}
 		cmd = exec.Command("git", "-C", dir, "reset", "--hard", "origin/HEAD")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			// origin/HEAD può non essere impostato: prova FETCH_HEAD.
+			// origin/HEAD may not be set: try FETCH_HEAD.
 			cmd = exec.Command("git", "-C", dir, "reset", "--hard", "FETCH_HEAD")
 			if out2, err2 := cmd.CombinedOutput(); err2 != nil {
 				return PkgFiles{}, fmt.Errorf("git reset %s: %v: %s / %s", pkgBase, err, out, out2)
@@ -162,12 +162,12 @@ func Fetch(pkgBase, cacheDir string) (PkgFiles, error) {
 		return PkgFiles{}, err
 	}
 	if _, ok := files["PKGBUILD"]; !ok {
-		return PkgFiles{}, fmt.Errorf("%s: PKGBUILD non trovato", pkgBase)
+		return PkgFiles{}, fmt.Errorf("%s: PKGBUILD not found", pkgBase)
 	}
 	return PkgFiles{PkgBase: pkgBase, Dir: dir, Files: files}, nil
 }
 
-// collectFiles legge i file versionati rilevanti per la review.
+// collectFiles reads the versioned files relevant to the review.
 func collectFiles(dir string) (map[string]string, error) {
 	files := map[string]string{}
 	entries, err := os.ReadDir(dir)
@@ -184,7 +184,7 @@ func collectFiles(dir string) (map[string]string, error) {
 		}
 		full := filepath.Join(dir, name)
 		info, err := e.Info()
-		if err != nil || info.Size() > 1<<20 { // salta file enormi
+		if err != nil || info.Size() > 1<<20 { // skip huge files
 			continue
 		}
 		b, err := os.ReadFile(full)
@@ -196,7 +196,7 @@ func collectFiles(dir string) (map[string]string, error) {
 	return files, nil
 }
 
-// relevant decide se un file va incluso nella review.
+// relevant decides whether a file should be included in the review.
 func relevant(name string) bool {
 	switch name {
 	case "PKGBUILD", ".SRCINFO":
@@ -210,8 +210,8 @@ func relevant(name string) bool {
 	return false
 }
 
-// stripConstraint rimuove i vincoli di versione da una dipendenza
-// (es. "glibc>=2.0" -> "glibc", "foo: descr" -> "foo").
+// stripConstraint removes version constraints from a dependency
+// (e.g. "glibc>=2.0" -> "glibc", "foo: descr" -> "foo").
 func stripConstraint(dep string) string {
 	dep = strings.TrimSpace(dep)
 	for _, sep := range []string{">=", "<=", "=", ">", "<", ":"} {

@@ -1,6 +1,6 @@
-// Package ui fornisce helper per un output di terminale colorato e allineato.
-// I colori si disattivano automaticamente quando l'output non è un terminale o
-// quando è impostato NO_COLOR / CAUR_NO_COLOR.
+// Package ui provides helpers for colored, aligned terminal output. Colors are
+// disabled automatically when the output is not a terminal or when NO_COLOR /
+// CAUR_NO_COLOR is set.
 package ui
 
 import (
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Color abilita o disabilita le sequenze ANSI (rilevato su stderr).
+// Color enables or disables ANSI sequences (detected on stderr).
 var Color = detectColor()
 
 func detectColor() bool {
@@ -23,7 +23,7 @@ func detectColor() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// Codici ANSI.
+// ANSI codes.
 const (
 	reset     = "\033[0m"
 	codeBold  = "\033[1m"
@@ -43,8 +43,8 @@ func paint(code, s string) string {
 	return code + s + reset
 }
 
-// Bold, Dim e le varianti di colore restituiscono s decorato (no-op se i colori
-// sono disabilitati).
+// Bold, Dim and the color variants return s decorated (no-op when colors are
+// disabled).
 func Bold(s string) string   { return paint(codeBold, s) }
 func Dim(s string) string    { return paint(codeDim, s) }
 func Red(s string) string    { return paint(codeRed, s) }
@@ -54,15 +54,15 @@ func Blue(s string) string   { return paint(codeBlue, s) }
 func Cyan(s string) string   { return paint(codeCyan, s) }
 func Gray(s string) string   { return paint(codeGray, s) }
 
-// BoldColor combina grassetto e un colore.
+// BoldColor combines bold with a color.
 func BoldColor(code, s string) string { return paint(codeBold+code, s) }
 
-// RedBold, ecc. comode scorciatoie.
+// RedBold, etc. are handy shortcuts.
 func RedBold(s string) string    { return BoldColor(codeRed, s) }
 func GreenBold(s string) string  { return BoldColor(codeGreen, s) }
 func YellowBold(s string) string { return BoldColor(codeYell, s) }
 
-// Width restituisce la larghezza utile del terminale (default 100).
+// Width returns the usable terminal width (default 100).
 func Width() int {
 	if c := os.Getenv("COLUMNS"); c != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(c)); err == nil && n > 20 {
@@ -72,8 +72,8 @@ func Width() int {
 	return 100
 }
 
-// Wrap manda a capo text in righe lunghe al massimo width, prefissando ogni
-// riga (tranne, opzionalmente, la prima) con indent. Spezza sulle parole.
+// Wrap wraps text into lines at most width long, prefixing each line with
+// indent. It breaks on words.
 func Wrap(text string, indent string, width int) []string {
 	words := strings.Fields(text)
 	if len(words) == 0 {
@@ -101,8 +101,8 @@ func Wrap(text string, indent string, width int) []string {
 	return lines
 }
 
-// Pad allinea s a sinistra su almeno n colonne (conteggio sui caratteri visibili,
-// senza le sequenze ANSI).
+// Pad left-aligns s to at least n columns (counting visible characters, not the
+// ANSI sequences).
 func Pad(s string, n int) string {
 	w := visibleLen(s)
 	if w >= n {
@@ -111,7 +111,7 @@ func Pad(s string, n int) string {
 	return s + strings.Repeat(" ", n-w)
 }
 
-// visibleLen conta i caratteri ignorando le sequenze ANSI.
+// visibleLen counts characters ignoring ANSI sequences.
 func visibleLen(s string) int {
 	n := 0
 	inEsc := false

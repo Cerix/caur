@@ -17,10 +17,10 @@ func TestEvaluate(t *testing.T) {
 		res       review.Result
 		wantBlock bool
 	}{
-		{"clean senza findings", review.Result{Verdict: "clean"}, false},
-		{"clean con soli info/low", review.Result{Verdict: "clean", Findings: []review.Finding{f("info"), f("low")}}, false},
-		{"clean con un medium", review.Result{Verdict: "clean", Findings: []review.Finding{f("medium")}}, true},
-		{"clean con un high", review.Result{Verdict: "clean", Findings: []review.Finding{f("high")}}, true},
+		{"clean without findings", review.Result{Verdict: "clean"}, false},
+		{"clean with only info/low", review.Result{Verdict: "clean", Findings: []review.Finding{f("info"), f("low")}}, false},
+		{"clean with one medium", review.Result{Verdict: "clean", Findings: []review.Finding{f("medium")}}, true},
+		{"clean with one high", review.Result{Verdict: "clean", Findings: []review.Finding{f("high")}}, true},
 		{"suspicious", review.Result{Verdict: "suspicious"}, true},
 		{"malicious", review.Result{Verdict: "malicious", Findings: []review.Finding{f("critical")}}, true},
 	}
@@ -28,7 +28,7 @@ func TestEvaluate(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			d := Evaluate(c.res, cfg)
 			if d.NeedConfirm != c.wantBlock {
-				t.Errorf("NeedConfirm = %v, atteso %v", d.NeedConfirm, c.wantBlock)
+				t.Errorf("NeedConfirm = %v, want %v", d.NeedConfirm, c.wantBlock)
 			}
 		})
 	}

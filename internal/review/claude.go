@@ -11,15 +11,15 @@ import (
 	"caur/internal/aur"
 )
 
-// ClaudeCLIReviewer usa il CLI `claude` in modalità headless (-p) come motore
-// di review. Non richiede gestione di API key: sfrutta il login esistente.
+// ClaudeCLIReviewer uses the `claude` CLI in headless mode (-p) as the review
+// engine. It needs no API key handling: it relies on the existing login.
 type ClaudeCLIReviewer struct {
-	Model string // alias modello; "" usa il default del CLI
+	Model string // model alias; "" uses the CLI default
 }
 
 func (r *ClaudeCLIReviewer) Name() string { return "claude-cli" }
 
-// claudeEnvelope è l'involucro JSON prodotto da `claude --output-format json`.
+// claudeEnvelope is the JSON envelope produced by `claude --output-format json`.
 type claudeEnvelope struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
@@ -35,7 +35,7 @@ func (r *ClaudeCLIReviewer) ReviewDiff(ctx context.Context, prev, cur aur.PkgFil
 	return r.run(ctx, buildDiffPrompt(prev, cur, notes))
 }
 
-// run invia un prompt al CLI claude e decodifica l'esito strutturato.
+// run sends a prompt to the claude CLI and decodes the structured outcome.
 func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, error) {
 	args := []string{"-p", prompt, "--output-format", "json"}
 	if r.Model != "" {
@@ -47,7 +47,7 @@ func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, err
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return Result{}, fmt.Errorf("esecuzione claude: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return Result{}, fmt.Errorf("running claude: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
 	text, err := extractResultText(stdout.Bytes())
@@ -57,34 +57,34 @@ func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, err
 
 	res, err := parseResult(text)
 	if err != nil {
-		return Result{}, fmt.Errorf("parse esito review: %w (risposta: %s)", err, truncate(text, 400))
+		return Result{}, fmt.Errorf("parse review outcome: %w (response: %s)", err, truncate(text, 400))
 	}
 	return res, nil
 }
 
-// extractResultText ricava il testo del modello dall'involucro del CLI. Se
-// l'output non è l'involucro atteso, prova a usarlo direttamente.
+// extractResultText pulls the model text out of the CLI envelope. If the output
+// is not the expected envelope, it tries to use it directly.
 func extractResultText(out []byte) (string, error) {
 	var env claudeEnvelope
 	if err := json.Unmarshal(bytes.TrimSpace(out), &env); err == nil && env.Result != "" {
 		if env.IsError {
-			return "", fmt.Errorf("claude ha restituito un errore: %s", truncate(env.Result, 400))
+			return "", fmt.Errorf("claude returned an error: %s", truncate(env.Result, 400))
 		}
 		return env.Result, nil
 	}
 	s := strings.TrimSpace(string(out))
 	if s == "" {
-		return "", fmt.Errorf("risposta vuota da claude")
+		return "", fmt.Errorf("empty response from claude")
 	}
 	return s, nil
 }
 
-// parseResult estrae l'oggetto JSON del nostro schema dal testo del modello,
-// tollerando eventuali fence ```json o testo attorno.
+// parseResult extracts our schema's JSON object from the model text, tolerating
+// ```json fences or surrounding text.
 func parseResult(text string) (Result, error) {
 	jsonStr := extractJSONObject(text)
 	if jsonStr == "" {
-		return Result{}, fmt.Errorf("nessun oggetto JSON trovato")
+		return Result{}, fmt.Errorf("no JSON object found")
 	}
 	var res Result
 	if err := json.Unmarshal([]byte(jsonStr), &res); err != nil {
@@ -92,13 +92,13 @@ func parseResult(text string) (Result, error) {
 	}
 	res.Verdict = strings.ToLower(strings.TrimSpace(res.Verdict))
 	if res.Verdict == "" {
-		res.Verdict = "suspicious" // prudenza: senza verdetto, non fidarsi
+		res.Verdict = "suspicious" // caution: with no verdict, don't trust it
 	}
 	return res, nil
 }
 
-// extractJSONObject restituisce il primo oggetto JSON bilanciato presente nel
-// testo (gestendo le stringhe per non confondere le graffe).
+// extractJSONObject returns the first balanced JSON object in the text
+// (handling strings so braces inside them are not miscounted).
 func extractJSONObject(text string) string {
 	start := strings.IndexByte(text, '{')
 	if start < 0 {

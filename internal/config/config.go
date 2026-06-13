@@ -1,8 +1,8 @@
-// Package config carica la configurazione di caur da ~/.config/caur/config.toml.
+// Package config loads caur's configuration from ~/.config/caur/config.toml.
 //
-// Per restare senza dipendenze esterne usa un parser minimale che supporta le
-// chiavi piatte di cui abbiamo bisogno: stringhe, booleani, interi e array di
-// stringhe. Se il file non esiste vengono usati i default.
+// To stay dependency-free it uses a minimal parser supporting the flat keys we
+// need: strings, booleans, integers and string arrays. If the file does not
+// exist, defaults are used.
 package config
 
 import (
@@ -13,24 +13,24 @@ import (
 	"strings"
 )
 
-// Config raccoglie le opzioni di caur.
+// Config holds caur's options.
 type Config struct {
-	Backend          string   // claude-cli (default) | anthropic | ollama (futuro)
-	Model            string   // model alias per il backend; "" = default del CLI
-	BlockThreshold   int      // n. di finding significativi (medium+) che blocca (>=)
-	AutoApproveClean bool     // se true, verdetto "clean" procede senza prompt
-	CacheReviews     bool     // riusa le review per PKGBUILD invariati
-	DiffReview       bool     // su update, revisiona solo le modifiche al PKGBUILD
-	MaintainerChange bool     // segnala/blocca al cambio di maintainer o se orfano
-	TrustedPackages  []string // pkgbase in allowlist: saltano la review
-	YayPath          string   // path/eseguibile del motore AUR sottostante
+	Backend          string   // claude-cli (default) | anthropic | ollama (future)
+	Model            string   // model alias for the backend; "" = CLI default
+	BlockThreshold   int      // number of significant (medium+) findings that block (>=)
+	AutoApproveClean bool     // if true, a "clean" verdict proceeds without prompting
+	CacheReviews     bool     // reuse reviews for unchanged PKGBUILDs
+	DiffReview       bool     // on updates, review only the PKGBUILD changes
+	MaintainerChange bool     // flag/block on maintainer change or orphaned package
+	TrustedPackages  []string // pkgbase allowlist: skip review
+	YayPath          string   // path/executable of the underlying AUR engine
 }
 
-// Default restituisce la configurazione di base.
+// Default returns the base configuration.
 func Default() Config {
 	return Config{
 		Backend:          "claude-cli",
-		Model:            "", // usa il modello con cui il CLI claude è loggato
+		Model:            "", // use the model the claude CLI is logged in with
 		BlockThreshold:   1,
 		AutoApproveClean: true,
 		CacheReviews:     true,
@@ -41,7 +41,7 @@ func Default() Config {
 	}
 }
 
-// Path restituisce il percorso del file di config.
+// Path returns the location of the config file.
 func Path() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
@@ -51,12 +51,12 @@ func Path() string {
 	return filepath.Join(base, "caur", "config.toml")
 }
 
-// Load legge la config dal disco, applicando i default per le chiavi assenti.
+// Load reads the config from disk, applying defaults for missing keys.
 func Load() Config {
 	cfg := Default()
 	f, err := os.Open(Path())
 	if err != nil {
-		return cfg // file assente o non leggibile: usa i default
+		return cfg // file missing or unreadable: use defaults
 	}
 	defer f.Close()
 
@@ -106,7 +106,7 @@ func unquote(s string) string {
 	return s
 }
 
-// parseStringArray interpreta una forma del tipo ["a", "b"] in []string.
+// parseStringArray parses a form like ["a", "b"] into a []string.
 func parseStringArray(s string) []string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "[")

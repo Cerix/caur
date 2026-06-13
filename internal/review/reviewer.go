@@ -1,7 +1,6 @@
-// Package review definisce l'interfaccia del motore di review e le sue
-// implementazioni. L'MVP usa il CLI `claude` in modalità headless; altri
-// backend (API Anthropic, OpenAI, Ollama) possono essere aggiunti dietro la
-// stessa interfaccia.
+// Package review defines the review engine interface and its implementations.
+// The MVP uses the `claude` CLI in headless mode; other backends (Anthropic
+// API, OpenAI, Ollama) can be added behind the same interface.
 package review
 
 import (
@@ -11,7 +10,7 @@ import (
 	"caur/internal/config"
 )
 
-// Finding è un singolo rilievo di sicurezza individuato nei file del pacchetto.
+// Finding is a single security issue found in the package files.
 type Finding struct {
 	Severity string `json:"severity"` // low | medium | high | critical
 	Title    string `json:"title"`
@@ -20,29 +19,29 @@ type Finding struct {
 	Evidence string `json:"evidence"`
 }
 
-// Result è l'esito strutturato della review di un pkgbase.
+// Result is the structured outcome of reviewing a pkgbase.
 type Result struct {
 	Verdict  string    `json:"verdict"` // clean | suspicious | malicious
-	Score    int       `json:"score"`   // rischio 0-100
+	Score    int       `json:"score"`   // risk 0-100
 	Summary  string    `json:"summary"`
 	Findings []Finding `json:"findings"`
 }
 
-// Reviewer è il contratto per qualunque backend di review.
+// Reviewer is the contract for any review backend.
 type Reviewer interface {
-	// Review analizza per intero i file di un pacchetto. notes è contesto
-	// aggiuntivo (es. segnali supply-chain) da includere nel prompt; può essere
-	// vuoto. Un errore indica review non completata: il chiamante applica la
-	// politica fail-closed (non installare).
+	// Review analyzes a package's files in full. notes is extra context
+	// (e.g. supply-chain signals) to include in the prompt; it may be empty.
+	// An error means the review did not complete: the caller applies the
+	// fail-closed policy (do not install).
 	Review(ctx context.Context, pf aur.PkgFiles, notes string) (Result, error)
-	// ReviewDiff analizza solo le modifiche tra una versione già approvata
-	// (prev) e quella nuova (cur), valutando se le modifiche introducono rischi.
+	// ReviewDiff analyzes only the changes between an already-approved version
+	// (prev) and the new one (cur), assessing whether the changes add risk.
 	ReviewDiff(ctx context.Context, prev, cur aur.PkgFiles, notes string) (Result, error)
-	// Name identifica il backend, per log e diagnostica.
+	// Name identifies the backend, for logs and diagnostics.
 	Name() string
 }
 
-// New seleziona il backend in base alla configurazione.
+// New selects the backend based on the configuration.
 func New(cfg config.Config) (Reviewer, error) {
 	switch cfg.Backend {
 	case "", "claude-cli":
@@ -55,8 +54,8 @@ func New(cfg config.Config) (Reviewer, error) {
 type unsupportedBackend string
 
 func (b unsupportedBackend) Error() string {
-	return "backend di review non supportato: " + string(b) +
-		" (disponibile: claude-cli)"
+	return "unsupported review backend: " + string(b) +
+		" (available: claude-cli)"
 }
 
 func errUnsupportedBackend(name string) error { return unsupportedBackend(name) }

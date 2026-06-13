@@ -1,0 +1,26 @@
+# Configurazione di caur — copiare in ~/.config/caur/config.toml
+# Tutte le chiavi sono opzionali: i valori qui sotto sono i default.
+
+# Backend del motore di review. Per ora solo "claude-cli" (usa il CLI `claude`
+# in modalità headless, sfruttando il login esistente — nessuna API key).
+backend = "claude-cli"
+
+# Alias del modello da passare al backend. Lasciare vuoto per usare il modello
+# con cui il CLI claude è loggato. Esempi: "claude-fable-5", "opus".
+model = ""
+
+# Numero di rilievi (findings) che fa scattare il blocco. 1 = qualsiasi rilievo
+# blocca e richiede conferma esplicita.
+block_threshold = 1
+
+# Se true, un verdetto "clean" (e sotto soglia) procede senza chiedere conferma.
+auto_approve_clean = true
+
+# Riusa l'esito della review quando i file del PKGBUILD non sono cambiati.
+cache_reviews = true
+
+# Allowlist di pkgbase fidati: saltano completamente la review.
+trusted_packages = []
+
+# Eseguibile/path del motore AUR sottostante.
+yay_path = "yay"

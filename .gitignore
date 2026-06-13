@@ -1,0 +1,6 @@
+# Binario compilato
+/caur
+
+# Artefatti Go
+*.test
+*.out

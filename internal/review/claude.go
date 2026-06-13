@@ -27,9 +27,16 @@ type claudeEnvelope struct {
 	Result  string `json:"result"`
 }
 
-func (r *ClaudeCLIReviewer) Review(ctx context.Context, pf aur.PkgFiles) (Result, error) {
-	prompt := buildPrompt(pf)
+func (r *ClaudeCLIReviewer) Review(ctx context.Context, pf aur.PkgFiles, notes string) (Result, error) {
+	return r.run(ctx, buildPrompt(pf, notes))
+}
 
+func (r *ClaudeCLIReviewer) ReviewDiff(ctx context.Context, prev, cur aur.PkgFiles, notes string) (Result, error) {
+	return r.run(ctx, buildDiffPrompt(prev, cur, notes))
+}
+
+// run invia un prompt al CLI claude e decodifica l'esito strutturato.
+func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, error) {
 	args := []string{"-p", prompt, "--output-format", "json"}
 	if r.Model != "" {
 		args = append(args, "--model", r.Model)

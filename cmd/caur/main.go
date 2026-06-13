@@ -79,99 +79,205 @@ func main() {
 	}
 }
 
-// reviewAndDecide risolve i target AUR, li revisiona (usando la cache) e, se
-// qualcosa è bloccato, mostra i report e chiede conferma. Ritorna true se si
-// può procedere con l'installazione.
-func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
+// reviewedItem raccoglie l'esito della review di un pacchetto.
+type reviewedItem struct {
+	base     string
+	result   review.Result // include i findings supply-chain
+	decision policy.Decision
+	mode     string // full | diff | cache | trusted
+	entry    cache.Entry
+	persist  bool // true se c'è qualcosa da salvare in cache su proceed
+}
+
+// reviewAll risolve i target AUR e li revisiona, scegliendo per ciascuno la
+// modalità (cache se invariato, diff se c'è una versione approvata, altrimenti
+// completa) e aggiungendo i segnali supply-chain. Non scrive nulla su disco: la
+// persistenza è decisa dal chiamante (solo se si procede).
+func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked bool, c *cache.Cache) {
 	pkgs, err := aur.Resolve(names)
 	if err != nil {
 		fail("risoluzione AUR: %v", err)
 	}
-	if len(pkgs) == 0 {
-		// Nessun pacchetto AUR coinvolto (tutti dai repo ufficiali, firmati).
-		return true
-	}
-
 	reviewer, err := review.New(cfg)
 	if err != nil {
 		fail("%v", err)
 	}
-	c := cache.Load()
+	c = cache.Load()
 
 	trusted := map[string]bool{}
 	for _, t := range cfg.TrustedPackages {
 		trusted[t] = true
 	}
 
-	type item struct {
-		base     string
-		result   review.Result
-		decision policy.Decision
-		trusted  bool
-	}
-	var items []item
-	blocked := false
-
 	for _, p := range pkgs {
 		if trusted[p.PackageBase] {
-			items = append(items, item{base: p.PackageBase, trusted: true,
-				decision: policy.Decision{Allow: true, Reason: "trusted"}})
+			items = append(items, reviewedItem{
+				base:     p.PackageBase,
+				mode:     "trusted",
+				decision: policy.Decision{Allow: true, Reason: "trusted"},
+			})
 			continue
 		}
 
-		fmt.Fprintf(os.Stderr, "caur: review di %s...\n", p.PackageBase)
 		pf, err := aur.Fetch(p.PackageBase, cacheDir())
 		if err != nil {
 			fail("download %s: %v", p.PackageBase, err)
 		}
-
 		hash := cache.Hash(pf)
-		res, ok := c.Get(hash)
-		if !ok || !cfg.CacheReviews {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-			res, err = reviewer.Review(ctx, pf)
-			cancel()
-			if err != nil {
-				// Fail-closed: se la review non si completa, non si installa.
-				fail("review fallita per %s: %v", p.PackageBase, err)
-			}
-			if cfg.CacheReviews {
-				c.Put(hash, res)
-			}
+		prev, hasPrev := c.Get(p.PackageBase)
+
+		meta, notes := supplyChainSignals(cfg, prev, hasPrev, p)
+
+		var baseRes review.Result
+		var mode string
+		switch {
+		case hasPrev && prev.Hash == hash && cfg.CacheReviews:
+			baseRes, mode = prev.Result, "cache"
+			fmt.Fprintf(os.Stderr, "caur: %s invariato dall'ultima review (cache)\n", p.PackageBase)
+		case hasPrev && cfg.DiffReview && len(prev.Files) > 0:
+			mode = "diff"
+			fmt.Fprintf(os.Stderr, "caur: review delle modifiche di %s (diff)...\n", p.PackageBase)
+			baseRes = runReview(func(ctx context.Context) (review.Result, error) {
+				return reviewer.ReviewDiff(ctx, aur.PkgFiles{PkgBase: p.PackageBase, Files: prev.Files}, pf, notes)
+			}, p.PackageBase)
+		default:
+			mode = "full"
+			fmt.Fprintf(os.Stderr, "caur: review di %s...\n", p.PackageBase)
+			baseRes = runReview(func(ctx context.Context) (review.Result, error) {
+				return reviewer.Review(ctx, pf, notes)
+			}, p.PackageBase)
 		}
 
-		dec := policy.Evaluate(res, cfg)
+		finalRes := withSignals(baseRes, meta)
+		dec := policy.Evaluate(finalRes, cfg)
 		if dec.NeedConfirm {
 			blocked = true
 		}
-		items = append(items, item{base: p.PackageBase, result: res, decision: dec})
+		items = append(items, reviewedItem{
+			base:     p.PackageBase,
+			result:   finalRes,
+			decision: dec,
+			mode:     mode,
+			persist:  true,
+			entry: cache.Entry{
+				Hash:         hash,
+				Result:       baseRes, // senza i meta-findings, che vanno ricalcolati live
+				Files:        pf.Files,
+				Maintainer:   p.Maintainer,
+				Version:      p.Version,
+				LastModified: p.LastModified,
+				ReviewedAt:   time.Now().Unix(),
+			},
+		})
 	}
+	return items, blocked, c
+}
 
-	if cfg.CacheReviews {
-		_ = c.Save()
+// runReview esegue una review con timeout, applicando il fail-closed.
+func runReview(fn func(context.Context) (review.Result, error), base string) review.Result {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	res, err := fn(ctx)
+	if err != nil {
+		fail("review fallita per %s: %v", base, err)
 	}
+	return res
+}
 
-	// Report.
-	fmt.Fprintln(os.Stderr)
-	for _, it := range items {
-		if it.trusted {
-			fmt.Fprintf(os.Stderr, "  ✓ %s  (allowlist)\n", it.base)
-			continue
+// withSignals fonde i findings supply-chain nel risultato e, se sono gravi,
+// impedisce che il verdetto resti "clean".
+func withSignals(r review.Result, meta []review.Finding) review.Result {
+	if len(meta) == 0 {
+		return r
+	}
+	out := r
+	out.Findings = append(append([]review.Finding{}, r.Findings...), meta...)
+	if out.Verdict == "clean" && hasConcerning(meta) {
+		out.Verdict = "suspicious"
+		if out.Score < 40 {
+			out.Score = 40
 		}
-		renderResult(it.base, it.result, it.decision)
 	}
-	fmt.Fprintln(os.Stderr)
+	return out
+}
 
-	if !blocked {
+func hasConcerning(fs []review.Finding) bool {
+	for _, f := range fs {
+		if f.Severity == "high" || f.Severity == "critical" {
+			return true
+		}
+	}
+	return false
+}
+
+// supplyChainSignals deriva findings deterministici e una nota di contesto dai
+// metadati AUR: pacchetto orfano, cambio di maintainer rispetto all'ultima
+// review approvata, out-of-date, recency.
+func supplyChainSignals(cfg config.Config, prev cache.Entry, hasPrev bool, p aur.Pkg) ([]review.Finding, string) {
+	if !cfg.MaintainerChange {
+		return nil, ""
+	}
+	var findings []review.Finding
+	var notes strings.Builder
+
+	switch {
+	case p.Orphaned():
+		findings = append(findings, review.Finding{
+			Severity: "high", File: "(AUR)", Title: "Pacchetto orfano (senza maintainer)",
+			Detail: "Il pacchetto non ha un maintainer su AUR: un PKGBUILD orfano può essere adottato da chiunque. Verifica con attenzione il contenuto.",
+		})
+		notes.WriteString("- Il pacchetto è ORFANO (nessun maintainer su AUR).\n")
+		if hasPrev && prev.Maintainer != "" {
+			notes.WriteString(fmt.Sprintf("- In precedenza era mantenuto da %q.\n", prev.Maintainer))
+		}
+	case hasPrev && prev.Maintainer != "" && prev.Maintainer != p.Maintainer:
+		findings = append(findings, review.Finding{
+			Severity: "high", File: "(AUR)", Title: "Maintainer cambiato",
+			Detail: fmt.Sprintf("Il maintainer è passato da %q a %q dall'ultima review approvata: un cambio di proprietà è un classico vettore di attacco supply-chain.", prev.Maintainer, p.Maintainer),
+		})
+		notes.WriteString(fmt.Sprintf("- Il MAINTAINER è cambiato: prima %q, ora %q.\n", prev.Maintainer, p.Maintainer))
+	}
+
+	if p.OutOfDate != 0 {
+		findings = append(findings, review.Finding{
+			Severity: "low", File: "(AUR)", Title: "Segnalato out-of-date",
+			Detail: "Il pacchetto è marcato out-of-date su AUR; potrebbe essere trascurato dal maintainer.",
+		})
+	}
+
+	if p.LastModified != 0 {
+		notes.WriteString(fmt.Sprintf("- Ultima modifica del pacchetto su AUR: %s.\n", time.Unix(p.LastModified, 0).Format("2006-01-02")))
+	}
+	if p.Maintainer != "" {
+		notes.WriteString(fmt.Sprintf("- Maintainer attuale: %q (voti AUR: %d).\n", p.Maintainer, p.NumVotes))
+	}
+	return findings, notes.String()
+}
+
+// reviewAndDecide revisiona i target e, se qualcosa è bloccato, mostra i report
+// e chiede conferma. Su proceed persiste la cache (baseline maintainer + file).
+func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
+	items, blocked, c := reviewAll(cfg, names)
+	if len(items) == 0 {
+		// Nessun pacchetto AUR coinvolto (tutti dai repo ufficiali, firmati).
 		return true
 	}
 
-	// Almeno un pacchetto è bloccato: serve conferma esplicita.
-	if noconfirm {
-		fmt.Fprintln(os.Stderr, "caur: rilievi di sicurezza presenti e --noconfirm attivo: blocco (fail-closed).")
-		return false
+	renderItems(items)
+
+	proceed := !blocked
+	if blocked {
+		if noconfirm {
+			fmt.Fprintln(os.Stderr, "caur: rilievi di sicurezza presenti e --noconfirm attivo: blocco (fail-closed).")
+			return false
+		}
+		proceed = confirm("Sono stati rilevati possibili rischi. Procedere comunque con l'installazione?")
 	}
-	return confirm("Sono stati rilevati possibili rischi. Procedere comunque con l'installazione?")
+
+	if proceed {
+		persist(c, items)
+	}
+	return proceed
 }
 
 // runReviewOnly esegue solo l'audit dei pacchetti dati, senza installare.
@@ -180,50 +286,19 @@ func runReviewOnly(cfg config.Config, names []string) int {
 		fmt.Fprintln(os.Stderr, "uso: caur review <pkg> [pkg...]")
 		return 2
 	}
-	pkgs, err := aur.Resolve(names)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "caur: %v\n", err)
-		return 1
-	}
-	if len(pkgs) == 0 {
+	items, _, c := reviewAll(cfg, names)
+	if len(items) == 0 {
 		fmt.Fprintln(os.Stderr, "caur: nessuno dei pacchetti indicati è nell'AUR.")
 		return 0
 	}
-	reviewer, err := review.New(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "caur: %v\n", err)
-		return 1
-	}
-	c := cache.Load()
+	renderItems(items)
+	persist(c, items)
+
 	worst := 0
-	for _, p := range pkgs {
-		fmt.Fprintf(os.Stderr, "caur: review di %s...\n", p.PackageBase)
-		pf, err := aur.Fetch(p.PackageBase, cacheDir())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "caur: download %s: %v\n", p.PackageBase, err)
-			return 1
+	for _, it := range items {
+		if it.result.Score > worst {
+			worst = it.result.Score
 		}
-		hash := cache.Hash(pf)
-		res, ok := c.Get(hash)
-		if !ok || !cfg.CacheReviews {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-			res, err = reviewer.Review(ctx, pf)
-			cancel()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "caur: review fallita per %s: %v\n", p.PackageBase, err)
-				return 1
-			}
-			if cfg.CacheReviews {
-				c.Put(hash, res)
-			}
-		}
-		renderResult(p.PackageBase, res, policy.Evaluate(res, cfg))
-		if res.Score > worst {
-			worst = res.Score
-		}
-	}
-	if cfg.CacheReviews {
-		_ = c.Save()
 	}
 	if worst >= 50 {
 		return 1
@@ -231,13 +306,46 @@ func runReviewOnly(cfg config.Config, names []string) int {
 	return 0
 }
 
+// persist salva nella cache gli esiti dei pacchetti revisionati.
+func persist(c *cache.Cache, items []reviewedItem) {
+	wrote := false
+	for _, it := range items {
+		if it.persist {
+			c.Put(it.base, it.entry)
+			wrote = true
+		}
+	}
+	if wrote {
+		_ = c.Save()
+	}
+}
+
+// renderItems stampa i report di tutti i pacchetti.
+func renderItems(items []reviewedItem) {
+	fmt.Fprintln(os.Stderr)
+	for _, it := range items {
+		if it.mode == "trusted" {
+			fmt.Fprintf(os.Stderr, "  ✓ %s  (allowlist)\n", it.base)
+			continue
+		}
+		renderResult(it.base, it.result, it.decision, it.mode)
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
 // renderResult stampa il report di una review.
-func renderResult(base string, r review.Result, d policy.Decision) {
+func renderResult(base string, r review.Result, d policy.Decision, mode string) {
 	mark := "✓"
 	if d.NeedConfirm {
 		mark = "⚠"
 	}
-	fmt.Fprintf(os.Stderr, "  %s %s  [%s, rischio %d/100]\n", mark, base, strings.ToUpper(emptyTo(r.Verdict, "?")), r.Score)
+	tag := ""
+	if mode == "diff" {
+		tag = " (diff)"
+	} else if mode == "cache" {
+		tag = " (cache)"
+	}
+	fmt.Fprintf(os.Stderr, "  %s %s%s  [%s, rischio %d/100]\n", mark, base, tag, strings.ToUpper(emptyTo(r.Verdict, "?")), r.Score)
 	if r.Summary != "" {
 		fmt.Fprintf(os.Stderr, "      %s\n", r.Summary)
 	}

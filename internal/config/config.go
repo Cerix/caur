@@ -17,9 +17,11 @@ import (
 type Config struct {
 	Backend          string   // claude-cli (default) | anthropic | ollama (futuro)
 	Model            string   // model alias per il backend; "" = default del CLI
-	BlockThreshold   int      // numero di finding che fa scattare il blocco (>=)
+	BlockThreshold   int      // n. di finding significativi (medium+) che blocca (>=)
 	AutoApproveClean bool     // se true, verdetto "clean" procede senza prompt
 	CacheReviews     bool     // riusa le review per PKGBUILD invariati
+	DiffReview       bool     // su update, revisiona solo le modifiche al PKGBUILD
+	MaintainerChange bool     // segnala/blocca al cambio di maintainer o se orfano
 	TrustedPackages  []string // pkgbase in allowlist: saltano la review
 	YayPath          string   // path/eseguibile del motore AUR sottostante
 }
@@ -32,6 +34,8 @@ func Default() Config {
 		BlockThreshold:   1,
 		AutoApproveClean: true,
 		CacheReviews:     true,
+		DiffReview:       true,
+		MaintainerChange: true,
 		TrustedPackages:  nil,
 		YayPath:          "yay",
 	}
@@ -81,6 +85,10 @@ func Load() Config {
 			cfg.AutoApproveClean = val == "true"
 		case "cache_reviews":
 			cfg.CacheReviews = val == "true"
+		case "diff_review":
+			cfg.DiffReview = val == "true"
+		case "maintainer_change":
+			cfg.MaintainerChange = val == "true"
 		case "trusted_packages":
 			cfg.TrustedPackages = parseStringArray(val)
 		case "yay_path":

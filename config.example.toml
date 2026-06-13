@@ -9,8 +9,9 @@ backend = "claude-cli"
 # con cui il CLI claude è loggato. Esempi: "claude-fable-5", "opus".
 model = ""
 
-# Numero di rilievi (findings) che fa scattare il blocco. 1 = qualsiasi rilievo
-# blocca e richiede conferma esplicita.
+# Numero di rilievi *significativi* (severità medium o superiore) che fa scattare
+# il blocco. 1 = qualsiasi rilievo medium+ blocca. I rilievi low/info non bloccano
+# da soli; un verdetto diverso da "clean" blocca comunque.
 block_threshold = 1
 
 # Se true, un verdetto "clean" (e sotto soglia) procede senza chiedere conferma.
@@ -18,6 +19,14 @@ auto_approve_clean = true
 
 # Riusa l'esito della review quando i file del PKGBUILD non sono cambiati.
 cache_reviews = true
+
+# Sugli aggiornamenti, revisiona solo il DIFF rispetto all'ultima versione
+# approvata (meno token, focus sulle modifiche). Richiede cache_reviews.
+diff_review = true
+
+# Segnala (come finding ad alta severità, quindi blocca) se il pacchetto è
+# orfano o se il maintainer è cambiato rispetto all'ultima review approvata.
+maintainer_change = true
 
 # Allowlist di pkgbase fidati: saltano completamente la review.
 trusted_packages = []

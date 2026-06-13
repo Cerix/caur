@@ -5,6 +5,8 @@
 package policy
 
 import (
+	"strings"
+
 	"caur/internal/config"
 	"caur/internal/review"
 )
@@ -16,18 +18,34 @@ type Decision struct {
 	Reason      string // motivo sintetico
 }
 
-// Evaluate applica la politica a un esito di review.
+// Evaluate applica la politica a un esito di review. Bloccano: un verdetto non
+// "clean", oppure un numero di findings *significativi* (severità medium o
+// superiore) >= block_threshold. I rilievi low/info da soli non bloccano.
 func Evaluate(r review.Result, cfg config.Config) Decision {
 	clean := r.Verdict == "clean"
-	enoughFindings := len(r.Findings) >= cfg.BlockThreshold
+	significant := 0
+	for _, f := range r.Findings {
+		if isSignificant(f.Severity) {
+			significant++
+		}
+	}
 
-	if clean && !enoughFindings && cfg.AutoApproveClean {
+	if clean && significant < cfg.BlockThreshold && cfg.AutoApproveClean {
 		return Decision{Allow: true, Reason: "clean"}
 	}
 	return Decision{
 		NeedConfirm: true,
 		Reason:      r.Verdict,
 	}
+}
+
+// isSignificant indica se una severità concorre al blocco.
+func isSignificant(severity string) bool {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "medium", "high", "critical":
+		return true
+	}
+	return false
 }
 
 // Blocked indica se almeno una decisione richiede conferma.

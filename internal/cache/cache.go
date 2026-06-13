@@ -1,6 +1,9 @@
-// Package cache memorizza gli esiti delle review indicizzati dall'hash dei file
-// del pacchetto, così da non rivolgersi al modello quando il PKGBUILD non è
-// cambiato (tipicamente sugli upgrade).
+// Package cache memorizza, per ogni pkgbase, l'ultimo esito di review approvato
+// insieme allo snapshot dei file e ai metadati supply-chain (maintainer,
+// versione, data di modifica). Serve a:
+//   - saltare la review quando i file non sono cambiati (hash identico);
+//   - fare una review "diff-only" rispetto all'ultima versione approvata;
+//   - rilevare il cambio di maintainer rispetto all'ultima volta.
 package cache
 
 import (
@@ -15,10 +18,21 @@ import (
 	"caur/internal/review"
 )
 
-// Cache è una mappa persistente hash -> esito review.
+// Entry è il record persistente per un pkgbase.
+type Entry struct {
+	Hash         string            `json:"hash"`          // hash dei file revisionati
+	Result       review.Result     `json:"result"`        // esito (senza i findings supply-chain)
+	Files        map[string]string `json:"files"`         // snapshot, per il diff
+	Maintainer   string            `json:"maintainer"`    // maintainer al momento dell'approvazione
+	Version      string            `json:"version"`       // versione approvata
+	LastModified int64             `json:"last_modified"` // unix
+	ReviewedAt   int64             `json:"reviewed_at"`   // unix
+}
+
+// Cache mappa pkgbase -> Entry, persistita su disco.
 type Cache struct {
-	path    string
-	Entries map[string]review.Result `json:"entries"`
+	path string
+	Pkgs map[string]Entry `json:"pkgs"`
 }
 
 // Dir restituisce la directory di cache di caur (~/.cache/caur).
@@ -31,18 +45,18 @@ func Dir() string {
 	return filepath.Join(base, "caur")
 }
 
-// Load carica la cache delle review da disco (vuota se assente).
+// Load carica la cache da disco (vuota se assente).
 func Load() *Cache {
-	c := &Cache{path: filepath.Join(Dir(), "reviews.json"), Entries: map[string]review.Result{}}
+	c := &Cache{path: filepath.Join(Dir(), "reviews.json"), Pkgs: map[string]Entry{}}
 	b, err := os.ReadFile(c.path)
 	if err != nil {
 		return c
 	}
 	var stored struct {
-		Entries map[string]review.Result `json:"entries"`
+		Pkgs map[string]Entry `json:"pkgs"`
 	}
-	if err := json.Unmarshal(b, &stored); err == nil && stored.Entries != nil {
-		c.Entries = stored.Entries
+	if err := json.Unmarshal(b, &stored); err == nil && stored.Pkgs != nil {
+		c.Pkgs = stored.Pkgs
 	}
 	return c
 }
@@ -65,15 +79,15 @@ func Hash(pf aur.PkgFiles) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Get restituisce l'esito memorizzato per un hash, se presente.
-func (c *Cache) Get(hash string) (review.Result, bool) {
-	r, ok := c.Entries[hash]
-	return r, ok
+// Get restituisce l'Entry per un pkgbase, se presente.
+func (c *Cache) Get(base string) (Entry, bool) {
+	e, ok := c.Pkgs[base]
+	return e, ok
 }
 
-// Put memorizza un esito per un hash.
-func (c *Cache) Put(hash string, r review.Result) {
-	c.Entries[hash] = r
+// Put memorizza/aggiorna l'Entry di un pkgbase.
+func (c *Cache) Put(base string, e Entry) {
+	c.Pkgs[base] = e
 }
 
 // Save persiste la cache su disco.
@@ -82,8 +96,8 @@ func (c *Cache) Save() error {
 		return err
 	}
 	b, err := json.MarshalIndent(struct {
-		Entries map[string]review.Result `json:"entries"`
-	}{c.Entries}, "", "  ")
+		Pkgs map[string]Entry `json:"pkgs"`
+	}{c.Pkgs}, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -27,6 +27,35 @@ gestisce pacman/yay. La review riguarda solo l'AUR.
 **Fail-closed:** se la review non si completa (errore del backend, timeout),
 l'installazione viene bloccata.
 
+### Review incrementale (diff-only)
+
+Ogni esito approvato viene memorizzato in `~/.cache/caur/reviews.json` insieme
+allo snapshot dei file. Alla volta successiva:
+
+- file **identici** → esito riusato dalla cache, nessuna chiamata al modello;
+- file **cambiati** e versione precedente approvata → review del **solo diff**
+  (`diff_review`): si invia al modello unicamente ciò che è cambiato, valutando
+  se le modifiche introducono nuovi rischi (meno token, più focus);
+- prima review o cache assente → review completa.
+
+La cache (e il baseline del maintainer) viene aggiornata **solo se procedi**:
+se rifiuti per via di un rilievo, alla volta dopo verrai riavvisato.
+
+### Segnali supply-chain (`maintainer_change`)
+
+Oltre al contenuto, caur usa i metadati dell'AUR come segnali deterministici,
+mostrati nel report e iniettati nel prompt:
+
+- **pacchetto orfano** (nessun maintainer su AUR) → finding ad alta severità;
+- **maintainer cambiato** rispetto all'ultima review approvata → finding ad alta
+  severità (classico vettore supply-chain). Il confronto è relativo all'ultima
+  volta che *tu* hai approvato il pacchetto (l'AUR non espone lo storico dei
+  maintainer via RPC);
+- **out-of-date** → finding a bassa severità;
+- data dell'ultima modifica e numero di voti → contesto per il modello.
+
+Un finding ad alta severità fa scattare il blocco con richiesta di conferma.
+
 ## Uso
 
 ```sh
@@ -53,6 +82,8 @@ Copia `config.example.toml` in `~/.config/caur/config.toml`. Chiavi principali:
 | `block_threshold`    | `1`            | n. di findings che fa scattare il blocco             |
 | `auto_approve_clean` | `true`         | "clean" procede senza conferma                       |
 | `cache_reviews`      | `true`         | riusa la review se i file non cambiano               |
+| `diff_review`        | `true`         | sugli update revisiona solo il diff vs ultima versione |
+| `maintainer_change`  | `true`         | segnala/blocca se orfano o se il maintainer è cambiato |
 | `trusted_packages`   | `[]`           | allowlist di pkgbase che saltano la review           |
 | `yay_path`           | `yay`          | eseguibile del motore AUR sottostante                |
 

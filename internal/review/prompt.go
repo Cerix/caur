@@ -10,7 +10,7 @@ import (
 
 // buildPrompt costruisce il prompt da inviare al modello: istruzioni da auditor
 // di sicurezza, schema JSON di output e contenuto dei file del pacchetto.
-func buildPrompt(pf aur.PkgFiles) string {
+func buildPrompt(pf aur.PkgFiles, notes string) string {
 	var b strings.Builder
 
 	b.WriteString(`Sei un auditor di sicurezza per pacchetti AUR di Arch Linux.
@@ -54,7 +54,56 @@ Se non trovi nulla di sospetto: verdict "clean", score basso, findings [].
 `)
 
 	fmt.Fprintf(&b, "=== Pacchetto: %s ===\n\n", pf.PkgBase)
+	writeNotes(&b, notes)
+	writeFiles(&b, pf)
+	return b.String()
+}
 
+// buildDiffPrompt chiede di valutare solo le modifiche tra la versione già
+// approvata e quella nuova. Lo schema di output è identico, ma il verdetto e lo
+// score si riferiscono al rischio introdotto DALLE MODIFICHE.
+func buildDiffPrompt(prev, cur aur.PkgFiles, notes string) string {
+	var b strings.Builder
+
+	b.WriteString(`Sei un auditor di sicurezza per pacchetti AUR di Arch Linux.
+Una versione PRECEDENTE di questo pacchetto era già stata revisionata e
+approvata. Qui sotto trovi il DIFF unificato verso la nuova versione dei file
+(PKGBUILD, .install, .SRCINFO, patch, script). Valuta se le MODIFICHE
+introducono nuovi rischi di sicurezza. Cerca in particolare: nuovi download/pipe
+verso shell, nuovi URL/IP, nuove fonti, offuscamento, esfiltrazione, scritture
+fuori dalla build dir, hook .install aggiunti/modificati, escalation, miner,
+backdoor, checksum disabilitati.
+
+Considera "clean" un diff che contiene solo aggiornamenti legittimi (bump di
+versione, nuovi checksum coerenti, ritocchi di packaging). Lo score e il verdict
+si riferiscono al rischio complessivo considerando le modifiche introdotte.
+
+Rispondi ESCLUSIVAMENTE con un oggetto JSON valido (stesso schema della review
+completa: verdict, score, summary, findings[]), senza testo o markdown attorno.
+
+`)
+
+	fmt.Fprintf(&b, "=== Pacchetto: %s ===\n\n", cur.PkgBase)
+	writeNotes(&b, notes)
+	b.WriteString("----- DIFF (versione approvata -> nuova) -----\n")
+	b.WriteString(unifiedDiff(prev.Files, cur.Files))
+	b.WriteString("----- FINE DIFF -----\n\n")
+	return b.String()
+}
+
+func writeNotes(b *strings.Builder, notes string) {
+	if strings.TrimSpace(notes) == "" {
+		return
+	}
+	b.WriteString("CONTESTO (segnali da considerare nella valutazione):\n")
+	b.WriteString(notes)
+	if !strings.HasSuffix(notes, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+func writeFiles(b *strings.Builder, pf aur.PkgFiles) {
 	// Ordina i nomi per un output deterministico (utile anche per la cache).
 	names := make([]string, 0, len(pf.Files))
 	for name := range pf.Files {
@@ -63,13 +112,11 @@ Se non trovi nulla di sospetto: verdict "clean", score basso, findings [].
 	sort.Strings(names)
 
 	for _, name := range names {
-		fmt.Fprintf(&b, "----- FILE: %s -----\n", name)
+		fmt.Fprintf(b, "----- FILE: %s -----\n", name)
 		b.WriteString(pf.Files[name])
 		if !strings.HasSuffix(pf.Files[name], "\n") {
 			b.WriteString("\n")
 		}
 		b.WriteString("----- FINE FILE -----\n\n")
 	}
-
-	return b.String()
 }

@@ -27,7 +27,16 @@ type Pkg struct {
 	Depends      []string `json:"Depends"`
 	MakeDepends  []string `json:"MakeDepends"`
 	CheckDepends []string `json:"CheckDepends"`
+
+	// Segnali supply-chain.
+	Maintainer   string `json:"Maintainer"`   // "" (null) = pacchetto orfano
+	LastModified int64  `json:"LastModified"` // unix: ultima modifica del pacchetto
+	OutOfDate    int64  `json:"OutOfDate"`    // unix: segnalato out-of-date (0 = no)
+	NumVotes     int    `json:"NumVotes"`
 }
+
+// Orphaned indica se il pacchetto è senza maintainer.
+func (p Pkg) Orphaned() bool { return strings.TrimSpace(p.Maintainer) == "" }
 
 type rpcResponse struct {
 	ResultCount int   `json:"resultcount"`

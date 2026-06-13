@@ -30,10 +30,14 @@ type Result struct {
 
 // Reviewer è il contratto per qualunque backend di review.
 type Reviewer interface {
-	// Review analizza i file di un pacchetto e restituisce un esito. Un errore
-	// indica che la review non è stata completata: il chiamante applica la
+	// Review analizza per intero i file di un pacchetto. notes è contesto
+	// aggiuntivo (es. segnali supply-chain) da includere nel prompt; può essere
+	// vuoto. Un errore indica review non completata: il chiamante applica la
 	// politica fail-closed (non installare).
-	Review(ctx context.Context, pf aur.PkgFiles) (Result, error)
+	Review(ctx context.Context, pf aur.PkgFiles, notes string) (Result, error)
+	// ReviewDiff analizza solo le modifiche tra una versione già approvata
+	// (prev) e quella nuova (cur), valutando se le modifiche introducono rischi.
+	ReviewDiff(ctx context.Context, prev, cur aur.PkgFiles, notes string) (Result, error)
 	// Name identifica il backend, per log e diagnostica.
 	Name() string
 }

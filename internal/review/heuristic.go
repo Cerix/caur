@@ -49,6 +49,12 @@ var (
 	rePipeToShell = regexp.MustCompile(`(?i)\b(curl|wget|fetch)\b[^\n|]*\|\s*(sudo\s+)?(bash|sh|zsh|python[0-9.]*)\b`)
 	reBase64Exec  = regexp.MustCompile(`(?i)base64\s+(-d|--decode|-D)\b[^\n]*\|\s*(bash|sh|zsh|python[0-9.]*)\b`)
 	reEvalDecode  = regexp.MustCompile(`(?i)eval\b[^\n]*(base64|\\x[0-9a-fA-F]{2}|xxd|openssl\s+enc|tr\s+)`)
+	// Redirection or tee into an absolute system path. A leading $pkgdir/$srcdir
+	// quote would put the variable (not a slash) right after the operator, so a
+	// bare "/etc", "/usr", ... after > / >> / tee means a write to the live
+	// system, which legitimate packaging never does (it writes under $pkgdir).
+	reSysWrite = regexp.MustCompile(`(?i)(>>?|\btee\b(\s+-a)?)\s*["']?/(etc|usr|bin|sbin|boot|lib|lib64|opt|srv|root|home|var/spool/cron)\b`)
+	reCrontab  = regexp.MustCompile(`(?i)\bcrontab\b`)
 )
 
 // scanContent applies the patterns to one file. install raises the severity of
@@ -95,6 +101,20 @@ func scanContent(name, content string, install bool) []Finding {
 			Severity: bump("high"), File: name, Title: "eval of decoded/obfuscated data",
 			Detail:   "eval is applied to decoded or escaped data, executing commands hidden from a plain reading of the file.",
 			Evidence: snippet(content, reEvalDecode),
+		})
+	}
+	if reSysWrite.MatchString(content) {
+		out = append(out, Finding{
+			Severity: bump("high"), File: name, Title: "Writes to a system path outside $pkgdir",
+			Detail:   "Output is redirected into a live system location (e.g. /etc, /usr). Legitimate packaging only writes under $pkgdir/$srcdir; writing to the real system bypasses pacman's file tracking and is a common persistence/tampering vector (shell rc files, /etc/profile.d, autostart).",
+			Evidence: snippet(content, reSysWrite),
+		})
+	}
+	if reCrontab.MatchString(content) {
+		out = append(out, Finding{
+			Severity: bump("medium"), File: name, Title: "Modifies crontab",
+			Detail:   "The package touches cron, which can schedule code to run later. This is unusual for a build/install and a known persistence vector.",
+			Evidence: snippet(content, reCrontab),
 		})
 	}
 	return out

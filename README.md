@@ -59,7 +59,9 @@ favorite hiding spot for malware, so they are scrutinized with extra weight.
 
 Before the agent is even called, a fast **offline heuristic pre-scan** flags
 high-confidence patterns: remote code piped to a shell, base64/`eval` payloads,
-and **hex/octal-escaped obfuscation** (the exact trick used in a
+**writes to system paths outside `$pkgdir`** (shell rc files, `/etc/profile.d`,
+crontab: the persistence trick used by the recent "hans" AUR malware), and
+**hex/octal-escaped obfuscation** (the exact trick used in a
 [real AUR compromise](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/TND7HA2KBQ46OHHUMMIAHKGXZE4WALM6/)
 that hid a command in a `post_install` hook). In an `.install` file these are
 raised to **critical**. This is defense-in-depth: it catches the pattern even if

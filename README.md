@@ -154,6 +154,9 @@ Copy `config.example.toml` to `~/.config/caur/config.toml`. Main keys:
 go build -o caur ./cmd/caur
 ```
 
+For a full step-by-step local setup (installing on your `PATH`, picking and
+logging into an agent CLI, configuring and verifying), see **[INSTALL.md](INSTALL.md)**.
+
 ## Test
 
 ```sh

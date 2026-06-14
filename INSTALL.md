@@ -85,7 +85,7 @@ mkdir -p ~/.config/caur
 cp config.example.toml ~/.config/caur/config.toml
 ```
 
-Then edit `~/.config/caur/config.toml` — most commonly to choose the agent:
+Then edit `~/.config/caur/config.toml`, most commonly to choose the agent:
 
 ```toml
 backend = "ollama"        # claude-cli | codex-cli | ollama | gemini-cli
@@ -110,8 +110,8 @@ caur firefox          # search
 caur -S <some-aur-pkg># review, then (on approval) install via yay
 ```
 
-If anything is flagged, caur can drop you into your agent's interactive CLI —
-seeded with the review findings — right in the package's clone directory, so you
+If anything is flagged, caur can drop you into your agent's interactive CLI,
+seeded with the review findings, right in the package's clone directory, so you
 can inspect it hands-on before deciding.
 
 ## 7. Updating caur
@@ -133,12 +133,12 @@ rm -rf ~/.cache/caur            # review cache + cloned PKGBUILDs (optional)
 
 ## Troubleshooting
 
-- **`unsupported review backend: …`** — `backend` in the config must be one of
+- **`unsupported review backend: …`**: `backend` in the config must be one of
   `claude-cli`, `codex-cli`, `ollama`, `gemini-cli`.
-- **`backend "ollama" requires a model`** — set `model` in the config (e.g.
+- **`backend "ollama" requires a model`**: set `model` in the config (e.g.
   `model = "llama3.1"`) and make sure you've `ollama pull`ed it.
-- **`running <agent>: … executable file not found`** — the agent CLI isn't
+- **`running <agent>: … executable file not found`**: the agent CLI isn't
   installed or isn't on your `PATH`.
-- **The review fails / times out** — caur is fail-closed: it blocks the install
+- **The review fails / times out**: caur is fail-closed, it blocks the install
   rather than proceeding blindly. Re-run once the agent CLI works (try the agent
   command directly to confirm it's logged in).

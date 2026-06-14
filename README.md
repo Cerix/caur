@@ -6,7 +6,7 @@ that has an **AI agent review the `PKGBUILD`** (and related files: `.install`,
 the AUR. The goal is to reduce the risk of installing malware from hostile
 PKGBUILDs while keeping the familiar yay/pacman workflow.
 
-The reviewing agent is **pluggable** — caur is not tied to any single model. It
+The reviewing agent is **pluggable**: caur is not tied to any single model. It
 ships profiles for **Claude**, **Codex/GPT**, **Ollama** (local models) and
 **Gemini**, and shells out to each agent's own CLI, reusing your existing login
 (no API keys to manage).
@@ -43,7 +43,7 @@ own command-line tool in headless mode:
 |--------------|-----------|----------------------|--------------------------------|
 | `claude-cli` | `claude`  | `claude`             | default                        |
 | `codex-cli`  | `codex`   | `codex`, `gpt`       | OpenAI Codex CLI               |
-| `ollama`     | `ollama`  | —                    | local models; `model` required |
+| `ollama`     | `ollama`  | (none)               | local models; `model` required |
 | `gemini-cli` | `gemini`  | `gemini`             | Google Gemini CLI              |
 
 Adding a new agent is a single profile entry in `internal/review/agent.go`; the
@@ -52,13 +52,13 @@ rest of caur is agent-agnostic.
 ### What gets reviewed (incl. `.install` hooks)
 
 caur sends the agent every build-relevant file: `PKGBUILD`, `.SRCINFO`, patches,
-helper scripts and — importantly — the **`.install` scriptlets**
+helper scripts and, importantly, the **`.install` scriptlets**
 (`pre_install`/`post_install`/`pre_upgrade`/`post_upgrade`/`pre_remove`/
 `post_remove`). Those hooks **run as root** during package operations and are a
 favorite hiding spot for malware, so they are scrutinized with extra weight.
 
 Before the agent is even called, a fast **offline heuristic pre-scan** flags
-high-confidence patterns — remote code piped to a shell, base64/`eval` payloads,
+high-confidence patterns: remote code piped to a shell, base64/`eval` payloads,
 and **hex/octal-escaped obfuscation** (the exact trick used in a
 [real AUR compromise](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/TND7HA2KBQ46OHHUMMIAHKGXZE4WALM6/)
 that hid a command in a `post_install` hook). In an `.install` file these are
@@ -68,12 +68,12 @@ the model misses it or the agent CLI is unavailable.
 ### Hands-on inspection (`interactive_inspect`)
 
 After a review, if anything was flagged, caur offers to open the **configured
-agent's interactive CLI right in the package's clone directory** — so you can ask
+agent's interactive CLI right in the package's clone directory**, so you can ask
 follow-up questions ("is this `post_install` hook malicious?") with the PKGBUILD
 and all related files at hand, then return to caur to decide.
 
 The headless review and the interactive session are separate agent invocations,
-so the conversation can't be literally resumed — but caur **seeds the session
+so the conversation can't be literally resumed, but caur **seeds the session
 with its review result** (verdict, score, findings) so the agent starts with
 context rather than cold, and can re-read the files itself from the clone dir.
 Seeding is supported for `claude`, `codex` and `gemini`; `ollama` opens a plain

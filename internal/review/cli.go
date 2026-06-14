@@ -11,46 +11,35 @@ import (
 	"caur/internal/aur"
 )
 
-// ClaudeCLIReviewer uses the `claude` CLI in headless mode (-p) as the review
-// engine. It needs no API key handling: it relies on the existing login.
-type ClaudeCLIReviewer struct {
-	Model string // model alias; "" uses the CLI default
+// CLIReviewer drives an AI command-line tool (see Agent) in headless mode as
+// the review engine. It needs no API key handling: it relies on the agent's
+// existing login/configuration.
+type CLIReviewer struct {
+	agent Agent
+	Model string // model alias; "" uses the agent default (where supported)
 }
 
-func (r *ClaudeCLIReviewer) Name() string { return "claude-cli" }
+func (r *CLIReviewer) Name() string { return r.agent.Backend }
 
-// claudeEnvelope is the JSON envelope produced by `claude --output-format json`.
-type claudeEnvelope struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	IsError bool   `json:"is_error"`
-	Result  string `json:"result"`
-}
-
-func (r *ClaudeCLIReviewer) Review(ctx context.Context, pf aur.PkgFiles, notes string) (Result, error) {
+func (r *CLIReviewer) Review(ctx context.Context, pf aur.PkgFiles, notes string) (Result, error) {
 	return r.run(ctx, buildPrompt(pf, notes))
 }
 
-func (r *ClaudeCLIReviewer) ReviewDiff(ctx context.Context, prev, cur aur.PkgFiles, notes string) (Result, error) {
+func (r *CLIReviewer) ReviewDiff(ctx context.Context, prev, cur aur.PkgFiles, notes string) (Result, error) {
 	return r.run(ctx, buildDiffPrompt(prev, cur, notes))
 }
 
-// run sends a prompt to the claude CLI and decodes the structured outcome.
-func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, error) {
-	args := []string{"-p", prompt, "--output-format", "json"}
-	if r.Model != "" {
-		args = append(args, "--model", r.Model)
-	}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
+// run sends a prompt to the agent CLI and decodes the structured outcome.
+func (r *CLIReviewer) run(ctx context.Context, prompt string) (Result, error) {
+	cmd := exec.CommandContext(ctx, r.agent.Bin, r.agent.promptArgs(r.Model, prompt)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return Result{}, fmt.Errorf("running claude: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return Result{}, fmt.Errorf("running %s: %w: %s", r.agent.Bin, err, strings.TrimSpace(stderr.String()))
 	}
 
-	text, err := extractResultText(stdout.Bytes())
+	text, err := r.agent.parse(stdout.Bytes())
 	if err != nil {
 		return Result{}, err
 	}
@@ -60,23 +49,6 @@ func (r *ClaudeCLIReviewer) run(ctx context.Context, prompt string) (Result, err
 		return Result{}, fmt.Errorf("parse review outcome: %w (response: %s)", err, truncate(text, 400))
 	}
 	return res, nil
-}
-
-// extractResultText pulls the model text out of the CLI envelope. If the output
-// is not the expected envelope, it tries to use it directly.
-func extractResultText(out []byte) (string, error) {
-	var env claudeEnvelope
-	if err := json.Unmarshal(bytes.TrimSpace(out), &env); err == nil && env.Result != "" {
-		if env.IsError {
-			return "", fmt.Errorf("claude returned an error: %s", truncate(env.Result, 400))
-		}
-		return env.Result, nil
-	}
-	s := strings.TrimSpace(string(out))
-	if s == "" {
-		return "", fmt.Errorf("empty response from claude")
-	}
-	return s, nil
 }
 
 // parseResult extracts our schema's JSON object from the model text, tolerating

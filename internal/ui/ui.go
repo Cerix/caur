@@ -62,6 +62,17 @@ func RedBold(s string) string    { return BoldColor(codeRed, s) }
 func GreenBold(s string) string  { return BoldColor(codeGreen, s) }
 func YellowBold(s string) string { return BoldColor(codeYell, s) }
 
+// IsTTY reports whether the session is interactive (stdin and stderr are both
+// terminals), so caur can prompt and launch interactive sub-programs.
+func IsTTY() bool {
+	return isCharDevice(os.Stdin) && isCharDevice(os.Stderr)
+}
+
+func isCharDevice(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 // Width returns the usable terminal width (default 100).
 func Width() int {
 	if c := os.Getenv("COLUMNS"); c != "" {

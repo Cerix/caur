@@ -1,12 +1,17 @@
 # caur configuration — copy to ~/.config/caur/config.toml
 # All keys are optional: the values below are the defaults.
 
-# Review engine backend. For now only "claude-cli" (uses the `claude` CLI in
-# headless mode, relying on the existing login — no API key).
+# Review agent backend. caur shells out to the agent's own CLI in headless mode,
+# reusing your existing login/config (no API keys of its own). Supported:
+#   claude-cli  -> Claude  (`claude`)        [default]
+#   codex-cli   -> Codex / GPT (`codex`)      (aliases: codex, gpt, openai)
+#   ollama      -> local models (`ollama`)    (requires `model`)
+#   gemini-cli  -> Gemini  (`gemini`)         (alias: gemini)
 backend = "claude-cli"
 
-# Model alias to pass to the backend. Leave empty to use the model the claude
-# CLI is logged in with. Examples: "claude-fable-5", "opus".
+# Model alias to pass to the backend. Leave empty to use the agent's default /
+# logged-in model. Examples: "opus", "gpt-5-codex", "llama3.1", "gemini-2.5-pro".
+# Note: the "ollama" backend requires a model here.
 model = ""
 
 # Number of *significant* findings (severity medium or higher) that triggers a
@@ -27,6 +32,10 @@ diff_review = true
 # Flag (as a high-severity finding, which blocks) if the package is orphaned or
 # if the maintainer changed since the last approved review.
 maintainer_change = true
+
+# After a review, offer to open the configured agent's interactive CLI in the
+# package's clone directory to inspect it hands-on. Skipped when non-interactive.
+interactive_inspect = true
 
 # Allowlist of trusted pkgbases: skip the review entirely.
 trusted_packages = []

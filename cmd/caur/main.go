@@ -1,5 +1,6 @@
-// Command caur is a front-end for yay that has a Claude agent review the
-// PKGBUILD (and related files) before building/installing an AUR package.
+// Command caur ("Check AUR") is a front-end for yay that has an AI agent review
+// the PKGBUILD (and related files) before building/installing an AUR package.
+// The agent is pluggable (Claude, Codex/GPT, Ollama, Gemini).
 //
 //	caur <term>           search packages (passthrough to yay -Ss)
 //	caur -S <pkg>         install <pkg> after the review
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +85,7 @@ func main() {
 // reviewedItem holds the review outcome of one package.
 type reviewedItem struct {
 	base     string
+	dir      string        // local clone dir, for hands-on inspection ("" if trusted)
 	result   review.Result // includes the supply-chain findings
 	decision policy.Decision
 	mode     string // full | diff | cache | trusted
@@ -128,6 +131,11 @@ func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked
 		prev, hasPrev := c.Get(p.PackageBase)
 
 		meta, notes := supplyChainSignals(cfg, prev, hasPrev, p)
+		// Deterministic offline backstop to the AI review.
+		if hf, hn := review.Heuristics(pf); len(hf) > 0 {
+			meta = append(meta, hf...)
+			notes += hn
+		}
 
 		var baseRes review.Result
 		var mode string
@@ -156,6 +164,7 @@ func reviewAll(cfg config.Config, names []string) (items []reviewedItem, blocked
 		}
 		items = append(items, reviewedItem{
 			base:     p.PackageBase,
+			dir:      pf.Dir,
 			result:   finalRes,
 			decision: dec,
 			mode:     mode,
@@ -273,6 +282,7 @@ func reviewAndDecide(cfg config.Config, names []string, noconfirm bool) bool {
 			info("security findings present and --noconfirm is set: blocking (fail-closed).")
 			return false
 		}
+		offerInspect(cfg, items)
 		proceed = confirm("Possible risks were detected. Proceed with the installation anyway?")
 	}
 
@@ -294,6 +304,7 @@ func runReviewOnly(cfg config.Config, names []string) int {
 		return 0
 	}
 	renderItems(items)
+	offerInspect(cfg, items)
 	persist(c, items)
 
 	worst := 0
@@ -522,6 +533,95 @@ func confirm(question string) bool {
 	}
 	line = strings.ToLower(strings.TrimSpace(line))
 	return line == "y" || line == "yes"
+}
+
+// offerInspect lets the user hand a reviewed package over to the configured
+// agent's interactive CLI for a deeper, conversational inspection. The agent
+// opens in the package's clone directory, where the PKGBUILD and related files
+// live. It is skipped when non-interactive or disabled in the config.
+func offerInspect(cfg config.Config, items []reviewedItem) {
+	if !cfg.InteractiveInspect || !ui.IsTTY() {
+		return
+	}
+	bin, _, ok := review.InteractiveCommand(cfg, "")
+	if !ok {
+		return
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return // agent CLI not installed; nothing to open
+	}
+
+	// Offer packages that have something worth a closer look.
+	var cand []reviewedItem
+	for _, it := range items {
+		if it.dir != "" && len(it.result.Findings) > 0 {
+			cand = append(cand, it)
+		}
+	}
+	if len(cand) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%s open %s to inspect a package in depth?\n",
+		ui.Cyan("caur"), ui.Bold(bin))
+	for i, it := range cand {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", ui.Dim(fmt.Sprintf("%d)", i+1)), it.base)
+	}
+	fmt.Fprintf(os.Stderr, "%s ", ui.Dim("number to open, Enter to skip:"))
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil || n < 1 || n > len(cand) {
+		return
+	}
+	it := cand[n-1]
+	// Seed the session with caur's review result so the agent has context.
+	_, args, _ := review.InteractiveCommand(cfg, inspectSeed(it))
+	launchInspect(bin, args, it)
+}
+
+// inspectSeed builds the initial message handed to the interactive agent so it
+// starts with caur's findings instead of cold; it can then read the files in the
+// clone dir itself.
+func inspectSeed(it reviewedItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "I'm about to install the AUR package %q and want to vet it. ", it.base)
+	b.WriteString("The PKGBUILD and related files (.install hooks, .SRCINFO, patches) are in this directory. ")
+	b.WriteString("An automated security pre-review already ran; here is its result:\n\n")
+	fmt.Fprintf(&b, "Verdict: %s (risk %d/100)\n", emptyTo(it.result.Verdict, "?"), it.result.Score)
+	if it.result.Summary != "" {
+		fmt.Fprintf(&b, "Summary: %s\n", it.result.Summary)
+	}
+	if len(it.result.Findings) > 0 {
+		b.WriteString("Findings:\n")
+		for _, f := range it.result.Findings {
+			fmt.Fprintf(&b, "- [%s] %s", emptyTo(f.Severity, "info"), f.Title)
+			if f.File != "" {
+				fmt.Fprintf(&b, " (%s)", f.File)
+			}
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\nPlease read the files here, investigate these findings in depth, and tell me whether it is safe to install.")
+	return b.String()
+}
+
+// launchInspect runs the agent CLI interactively in the package's clone dir,
+// wiring it to the terminal. caur resumes when the agent session ends.
+func launchInspect(bin string, baseArgs []string, it reviewedItem) {
+	info("opening %s in %s — seeded with the review findings; the PKGBUILD and related files are there. Exit the agent to return to caur.", bin, it.dir)
+	cmd := exec.Command(bin, baseArgs...)
+	cmd.Dir = it.dir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		info("inspection session ended (%v).", err)
+	}
 }
 
 func hasNoConfirm(args []string) bool {

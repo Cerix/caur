@@ -15,29 +15,31 @@ import (
 
 // Config holds caur's options.
 type Config struct {
-	Backend          string   // claude-cli (default) | anthropic | ollama (future)
-	Model            string   // model alias for the backend; "" = CLI default
-	BlockThreshold   int      // number of significant (medium+) findings that block (>=)
-	AutoApproveClean bool     // if true, a "clean" verdict proceeds without prompting
-	CacheReviews     bool     // reuse reviews for unchanged PKGBUILDs
-	DiffReview       bool     // on updates, review only the PKGBUILD changes
-	MaintainerChange bool     // flag/block on maintainer change or orphaned package
-	TrustedPackages  []string // pkgbase allowlist: skip review
-	YayPath          string   // path/executable of the underlying AUR engine
+	Backend            string   // review agent: claude-cli (default) | codex-cli | ollama | gemini-cli
+	Model              string   // model alias for the backend; "" = CLI default
+	BlockThreshold     int      // number of significant (medium+) findings that block (>=)
+	AutoApproveClean   bool     // if true, a "clean" verdict proceeds without prompting
+	CacheReviews       bool     // reuse reviews for unchanged PKGBUILDs
+	DiffReview         bool     // on updates, review only the PKGBUILD changes
+	MaintainerChange   bool     // flag/block on maintainer change or orphaned package
+	InteractiveInspect bool     // after a review, offer to open the agent CLI for deep inspection
+	TrustedPackages    []string // pkgbase allowlist: skip review
+	YayPath            string   // path/executable of the underlying AUR engine
 }
 
 // Default returns the base configuration.
 func Default() Config {
 	return Config{
-		Backend:          "claude-cli",
-		Model:            "", // use the model the claude CLI is logged in with
-		BlockThreshold:   1,
-		AutoApproveClean: true,
-		CacheReviews:     true,
-		DiffReview:       true,
-		MaintainerChange: true,
-		TrustedPackages:  nil,
-		YayPath:          "yay",
+		Backend:            "claude-cli",
+		Model:              "", // use the model the agent CLI is logged in with
+		BlockThreshold:     1,
+		AutoApproveClean:   true,
+		CacheReviews:       true,
+		DiffReview:         true,
+		MaintainerChange:   true,
+		InteractiveInspect: true,
+		TrustedPackages:    nil,
+		YayPath:            "yay",
 	}
 }
 
@@ -89,6 +91,8 @@ func Load() Config {
 			cfg.DiffReview = val == "true"
 		case "maintainer_change":
 			cfg.MaintainerChange = val == "true"
+		case "interactive_inspect":
+			cfg.InteractiveInspect = val == "true"
 		case "trusted_packages":
 			cfg.TrustedPackages = parseStringArray(val)
 		case "yay_path":

@@ -20,11 +20,18 @@ find any malicious or suspicious behavior. Pay attention to:
 - pipes to a shell (curl/wget ... | bash/sh), downloading and executing
   unverified remote code;
 - suspicious URLs/IPs or domains unrelated to the upstream project;
-- obfuscation: base64/hex/eval, encoded strings, hidden commands;
-- data exfiltration (sending files, environment variables, keys);
+- obfuscation of any kind: base64/hex/octal-escaped strings (\xNN, \NNN),
+  string concatenation that hides a command, eval, printf-built commands,
+  reversed strings, character arithmetic — treat obfuscation in build or
+  install code as malicious until proven benign;
+- .install scriptlets (pre_install/post_install/pre_upgrade/post_upgrade/
+  pre_remove/post_remove): these run AS ROOT on the user's machine, so scrutinize
+  them especially — any network access, eval, obfuscation or system modification
+  there is high severity;
+- data exfiltration (sending files, environment variables, keys, ~/.ssh);
 - writes outside the build directory ($srcdir/$pkgdir), changes to system files,
   /etc, systemd units, crontab, autostart files;
-- sudo/privilege escalation and .install hooks (pre/post install/upgrade/remove);
+- sudo/privilege escalation;
 - cryptocurrency miners, backdoors, persistence;
 - disabled checksums (sha256sums=SKIP) on remote non-VCS sources.
 
@@ -70,8 +77,10 @@ A PREVIOUS version of this package was already reviewed and approved. Below is
 the unified DIFF to the new version of the files (PKGBUILD, .install, .SRCINFO,
 patches, scripts). Assess whether the CHANGES introduce new security risks. Look
 in particular for: new downloads/pipes to a shell, new URLs/IPs, new sources,
-obfuscation, exfiltration, writes outside the build dir, added/modified .install
-hooks, privilege escalation, miners, backdoors, disabled checksums.
+obfuscation (base64/hex/octal escapes, eval, string fragmentation), exfiltration,
+writes outside the build dir, added or modified .install scriptlets (which run as
+root: pre/post install/upgrade/remove), privilege escalation, miners, backdoors,
+disabled checksums.
 
 Treat as "clean" a diff that only contains legitimate updates (version bump,
 consistent new checksums, packaging tweaks). The score and verdict refer to the

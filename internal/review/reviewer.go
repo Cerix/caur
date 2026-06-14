@@ -1,10 +1,13 @@
 // Package review defines the review engine interface and its implementations.
-// The MVP uses the `claude` CLI in headless mode; other backends (Anthropic
-// API, OpenAI, Ollama) can be added behind the same interface.
+// Reviews are produced by shelling out to an AI command-line tool (see Agent)
+// in headless mode: caur ships profiles for Claude, Codex/GPT, Ollama and
+// Gemini, and more can be added behind the same interface.
 package review
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"caur/internal/aur"
 	"caur/internal/config"
@@ -41,21 +44,32 @@ type Reviewer interface {
 	Name() string
 }
 
-// New selects the backend based on the configuration.
+// New selects the review backend based on the configuration.
 func New(cfg config.Config) (Reviewer, error) {
-	switch cfg.Backend {
-	case "", "claude-cli":
-		return &ClaudeCLIReviewer{Model: cfg.Model}, nil
-	default:
-		return nil, errUnsupportedBackend(cfg.Backend)
+	ag, ok := lookupAgent(cfg.Backend)
+	if !ok {
+		return nil, fmt.Errorf("unsupported review backend: %s (available: %s)",
+			cfg.Backend, strings.Join(backendNames(), ", "))
 	}
+	if ag.NeedsModel && strings.TrimSpace(cfg.Model) == "" {
+		return nil, fmt.Errorf("backend %q requires a model: set `model` in the config (e.g. model = \"llama3.1\")", ag.Backend)
+	}
+	return &CLIReviewer{agent: ag, Model: cfg.Model}, nil
 }
 
-type unsupportedBackend string
-
-func (b unsupportedBackend) Error() string {
-	return "unsupported review backend: " + string(b) +
-		" (available: claude-cli)"
+// InteractiveCommand returns the executable and arguments to open the
+// configured agent in an interactive session, for hands-on deep inspection of a
+// package after the automated review. If seed is non-empty and the agent
+// supports it, the session starts pre-seeded with that message (caur's review
+// result), so the agent has context instead of starting cold. ok is false if
+// the backend is unknown.
+func InteractiveCommand(cfg config.Config, seed string) (bin string, args []string, ok bool) {
+	ag, found := lookupAgent(cfg.Backend)
+	if !found {
+		return "", nil, false
+	}
+	if seed != "" && ag.replSeedArgs != nil {
+		return ag.Bin, ag.replSeedArgs(cfg.Model, seed), true
+	}
+	return ag.Bin, ag.replArgs(cfg.Model), true
 }
-
-func errUnsupportedBackend(name string) error { return unsupportedBackend(name) }
